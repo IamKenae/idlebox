@@ -1,6 +1,5 @@
 use crate::core::Applet;
 use std::ffi::CString;
-use std::process::Command;
 
 pub struct SuApplet;
 
@@ -131,57 +130,84 @@ impl Applet for SuApplet {
             return Ok(1);
         }
 
-        match command {
-            Some(cmd) => {
-                let mut child = Command::new(&shell_path);
-                child.arg("-c").arg(cmd);
+        let shell_c = CString::new(shell_path.as_str()).map_err(|_| "invalid shell path")?;
 
-                if login_shell {
-                    child.env("HOME", &pw.dir);
-                    child.env("USER", target_user);
-                    child.env("SHELL", &shell_path);
-                    child.env("LOGNAME", target_user);
-                    if pw.uid == 0 {
-                        child.env("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin");
-                    } else {
-                        child.env("PATH", "/usr/local/bin:/usr/bin:/bin");
-                    }
-                }
-
-                child.env("HOME", &pw.dir);
-                child.env("USER", target_user);
-                child.env("SHELL", &shell_path);
-                child.env("LOGNAME", target_user);
-
-                match child.status() {
-                    Ok(status) => Ok(status.code().unwrap_or(1)),
-                    Err(e) => {
-                        eprintln!("su: failed to execute '{}': {}", shell_path, e);
-                        Ok(1)
-                    }
-                }
-            }
-            None => {
-                let mut child = Command::new(&shell_path);
-
-                if login_shell {
-                    child.arg("-l");
-                }
-
-                child.env("HOME", &pw.dir);
-                child.env("USER", target_user);
-                child.env("SHELL", &shell_path);
-                child.env("LOGNAME", target_user);
-
-                match child.status() {
-                    Ok(status) => Ok(status.code().unwrap_or(1)),
-                    Err(e) => {
-                        eprintln!("su: failed to execute '{}': {}", shell_path, e);
-                        Ok(1)
-                    }
-                }
-            }
+        let mut exec_args: Vec<CString> = Vec::new();
+        if login_shell {
+            let login_name = format!("-{}", shell_path.rsplit('/').next().unwrap_or("sh"));
+            exec_args.push(CString::new(login_name).unwrap());
+        } else {
+            exec_args.push(shell_c.clone());
         }
+
+        if let Some(cmd) = command {
+            exec_args.push(CString::new("-c").unwrap());
+            exec_args.push(CString::new(cmd).unwrap());
+        }
+
+        let home_c = CString::new("HOME").unwrap();
+        let user_c = CString::new("USER").unwrap();
+        let shell_env_c = CString::new("SHELL").unwrap();
+        let logname_c = CString::new("LOGNAME").unwrap();
+        let path_c = CString::new("PATH").unwrap();
+
+        let home_val = CString::new(pw.dir.as_str()).unwrap();
+        let user_val = CString::new(target_user).unwrap();
+        let shell_val = CString::new(shell_path.as_str()).unwrap();
+        let path_val = if pw.uid == 0 {
+            CString::new("/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin").unwrap()
+        } else {
+            CString::new("/usr/local/bin:/usr/bin:/bin").unwrap()
+        };
+
+        let pid = unsafe { raw_fork() };
+        if pid < 0 {
+            eprintln!("su: fork failed");
+            return Ok(1);
+        }
+
+        if pid == 0 {
+            if unsafe { raw_setgid(pw.gid) } != 0 {
+                unsafe { raw__exit(1); }
+            }
+            if unsafe { raw_setuid(pw.uid) } != 0 {
+                unsafe { raw__exit(1); }
+            }
+
+            unsafe {
+                raw_setenv(home_c.as_ptr(), home_val.as_ptr(), 1);
+                raw_setenv(user_c.as_ptr(), user_val.as_ptr(), 1);
+                raw_setenv(shell_env_c.as_ptr(), shell_val.as_ptr(), 1);
+                raw_setenv(logname_c.as_ptr(), user_val.as_ptr(), 1);
+                if login_shell {
+                    raw_setenv(path_c.as_ptr(), path_val.as_ptr(), 1);
+                }
+            }
+
+            let mut c_argv: Vec<*const i8> = exec_args.iter().map(|a| a.as_ptr()).collect();
+            c_argv.push(std::ptr::null());
+
+            unsafe {
+                raw_execvp(shell_c.as_ptr(), c_argv.as_ptr());
+            }
+
+            eprintln!("su: failed to execute '{}'", shell_path);
+            unsafe { raw__exit(1); }
+        }
+
+        let mut status: i32 = 0;
+        loop {
+            let ret = unsafe { raw_waitpid(pid, &mut status, 0) };
+            if ret < 0 {
+                break;
+            }
+            if unsafe { raw_wifexited(status) } {
+                return Ok(unsafe { raw_wexitstatus(status) });
+            }
+            return Ok(1);
+        }
+
+        Ok(1)
     }
 
     fn help(&self) {
@@ -201,6 +227,7 @@ impl Applet for SuApplet {
 
 struct PasswdInfo {
     uid: u32,
+    gid: u32,
     dir: String,
     shell: String,
 }
@@ -239,6 +266,7 @@ fn get_passwd_by_name(name: &str) -> Option<PasswdInfo> {
     unsafe {
         Some(PasswdInfo {
             uid: (*ptr).pw_uid,
+            gid: (*ptr).pw_gid,
             dir: c_char_to_string((*ptr).pw_dir),
             shell: c_char_to_string((*ptr).pw_shell),
         })
@@ -251,4 +279,33 @@ extern "C" {
 
     #[link_name = "getpwnam"]
     fn raw_getpwnam(name: *const i8) -> *const Passwd;
+
+    #[link_name = "fork"]
+    fn raw_fork() -> i32;
+
+    #[link_name = "setgid"]
+    fn raw_setgid(gid: u32) -> i32;
+
+    #[link_name = "setuid"]
+    fn raw_setuid(uid: u32) -> i32;
+
+    #[link_name = "execvp"]
+    fn raw_execvp(file: *const i8, argv: *const *const i8) -> i32;
+
+    #[link_name = "waitpid"]
+    fn raw_waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
+
+    #[link_name = "setenv"]
+    fn raw_setenv(name: *const i8, value: *const i8, overwrite: i32) -> i32;
+
+    #[link_name = "_exit"]
+    fn raw__exit(status: i32) -> !;
+}
+
+unsafe fn raw_wifexited(status: i32) -> bool {
+    (status & 0x7f) == 0
+}
+
+unsafe fn raw_wexitstatus(status: i32) -> i32 {
+    (status >> 8) & 0xff
 }
