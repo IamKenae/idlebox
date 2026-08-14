@@ -1,15 +1,20 @@
+#[cfg(unix)]
 use std::env;
+#[cfg(unix)]
 use std::fs;
+#[cfg(unix)]
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
 
+#[cfg(unix)]
 use crate::core::Dispatcher;
 
 pub fn install(target: Option<&str>) -> Result<i32, Box<dyn std::error::Error>> {
     #[cfg(not(unix))]
     {
+        let _ = target;
         eprintln!("idlebox: --install is only supported on Unix-like systems");
         return Err("unsupported platform".into());
     }
@@ -61,6 +66,7 @@ pub fn install(target: Option<&str>) -> Result<i32, Box<dyn std::error::Error>> 
     }
 }
 
+#[cfg(unix)]
 fn default_install_dir() -> PathBuf {
     PathBuf::from("/usr/local/bin")
 }

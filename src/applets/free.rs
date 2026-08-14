@@ -12,7 +12,7 @@ impl Applet for FreeApplet {
         "Display amount of free and available memory"
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let mut human_readable = false;
 
@@ -81,6 +81,45 @@ impl Applet for FreeApplet {
         Ok(0)
     }
 
+    #[cfg(target_os = "macos")]
+    fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        let mut human_readable = false;
+
+        for arg in args {
+            match arg.as_str() {
+                "-h" | "--human-readable" => human_readable = true,
+                _ if arg.starts_with('-') => {}
+                _ => {}
+            }
+        }
+
+        let (total_kb, free_kb) = get_macos_memory()?;
+        let used_kb = total_kb.saturating_sub(free_kb);
+
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+
+        if human_readable {
+            writeln!(out, "{:<8} {:>12} {:>12} {:>12}",
+                "", "total", "used", "free")?;
+            writeln!(out, "{:<8} {:>12} {:>12} {:>12}",
+                "Mem:",
+                human_size_kb(total_kb),
+                human_size_kb(used_kb),
+                human_size_kb(free_kb))?;
+        } else {
+            writeln!(out, "{:<8} {:>12} {:>12} {:>12}",
+                "", "total", "used", "free")?;
+            writeln!(out, "{:<8} {:>12} {:>12} {:>12}",
+                "Mem:",
+                total_kb,
+                used_kb,
+                free_kb)?;
+        }
+
+        Ok(0)
+    }
+
     #[cfg(windows)]
     fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let stdout = io::stdout();
@@ -98,7 +137,7 @@ impl Applet for FreeApplet {
         Ok(0)
     }
 
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         eprintln!("free: not supported on this platform");
         Ok(1)
@@ -114,7 +153,7 @@ impl Applet for FreeApplet {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 struct MemInfo {
     mem_total: u64,
     mem_free: u64,
@@ -126,7 +165,7 @@ struct MemInfo {
     swap_free: u64,
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn parse_meminfo() -> Result<MemInfo, io::Error> {
     use std::fs;
     use std::io::BufRead;
@@ -174,6 +213,37 @@ fn parse_meminfo() -> Result<MemInfo, io::Error> {
         swap_total,
         swap_free,
     })
+}
+
+#[cfg(target_os = "macos")]
+fn get_macos_memory() -> Result<(u64, u64), io::Error> {
+    let page_size_output = std::process::Command::new("sysctl")
+        .arg("-n").arg("hw.pagesize")
+        .output()?;
+    let page_size: u64 = String::from_utf8_lossy(&page_size_output.stdout)
+        .trim().parse().unwrap_or(4096);
+
+    let total_output = std::process::Command::new("sysctl")
+        .arg("-n").arg("hw.memsize")
+        .output()?;
+    let total_bytes: u64 = String::from_utf8_lossy(&total_output.stdout)
+        .trim().parse().unwrap_or(0);
+    let total_kb = total_bytes / 1024;
+
+    let vm_output = std::process::Command::new("vm_stat")
+        .output()?;
+    let vm_str = String::from_utf8_lossy(&vm_output.stdout);
+    let mut free_pages: u64 = 0;
+    for line in vm_str.lines() {
+        if line.contains("Pages free") {
+            if let Some(val) = line.split(':').nth(1) {
+                free_pages = val.trim().trim_end_matches('.').parse().unwrap_or(0);
+            }
+        }
+    }
+    let free_kb = (free_pages * page_size) / 1024;
+
+    Ok((total_kb, free_kb))
 }
 
 #[cfg(windows)]

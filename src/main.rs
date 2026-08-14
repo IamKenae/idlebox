@@ -13,6 +13,7 @@ fn main() {
     let argv0 = Path::new(&args[0])
         .file_name()
         .and_then(|s| s.to_str())
+        .map(|s| s.trim_end_matches(".exe"))
         .unwrap_or("idlebox");
     
     let dispatcher = Dispatcher::new();

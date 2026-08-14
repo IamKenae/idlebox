@@ -12,7 +12,7 @@ impl Applet for DfApplet {
         "Report file system disk space usage"
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let mut human_readable = false;
         let mut target_path: Option<&str> = None;
@@ -83,8 +83,47 @@ impl Applet for DfApplet {
                 {
                     continue;
                 }
-                if let Ok(stat) = statvfs(&mount.mount_point) {
+                if let Ok(stat) = statvfs_linux(&mount.mount_point) {
                     print_statvfs_line(&mut out, &mount.device, &mount.mount_point, &stat, human_readable)?;
+                }
+            }
+        }
+
+        Ok(0)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        let mut human_readable = false;
+        let mut target_path: Option<String> = None;
+
+        for arg in args {
+            match arg.as_str() {
+                "-h" | "--human-readable" => human_readable = true,
+                _ if arg.starts_with('-') => {}
+                _ => {
+                    target_path = Some(arg.clone());
+                }
+            }
+        }
+
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+        print_header(&mut out)?;
+
+        if let Some(path) = target_path {
+            if let Ok(info) = statfs_macos(&path) {
+                print_statfs_line(&mut out, &info.0, &path, &info.1, human_readable)?;
+            }
+        } else {
+            let output = std::process::Command::new("mount")
+                .output()?;
+            let stdout_str = String::from_utf8_lossy(&output.stdout);
+            for line in stdout_str.lines() {
+                if let Some(info) = parse_mount_line(line) {
+                    if let Ok(stat) = statfs_macos(&info.1) {
+                        print_statfs_line(&mut out, &info.0, &info.1, &stat.1, human_readable)?;
+                    }
                 }
             }
         }
@@ -127,7 +166,7 @@ impl Applet for DfApplet {
         Ok(0)
     }
 
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         eprintln!("df: not supported on this platform");
         Ok(1)
@@ -143,14 +182,14 @@ impl Applet for DfApplet {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 struct MountEntry {
     device: String,
     mount_point: String,
     fs_type: String,
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn parse_proc_mounts() -> Result<Vec<MountEntry>, io::Error> {
     use std::fs;
     use std::io::BufRead;
@@ -173,7 +212,7 @@ fn parse_proc_mounts() -> Result<Vec<MountEntry>, io::Error> {
     Ok(entries)
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn unescape_mount_path(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars();
@@ -195,7 +234,7 @@ fn unescape_mount_path(s: &str) -> String {
     result
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn find_mount_for_path(path: &str) -> Result<MountEntry, io::Error> {
     use std::fs;
     let canonical = fs::canonicalize(path)
@@ -225,7 +264,7 @@ fn find_mount_for_path(path: &str) -> Result<MountEntry, io::Error> {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 struct Statvfs {
     block_size: u64,
     blocks: u64,
@@ -233,8 +272,8 @@ struct Statvfs {
     blocks_avail: u64,
 }
 
-#[cfg(unix)]
-fn statvfs(path: &str) -> Result<Statvfs, io::Error> {
+#[cfg(target_os = "linux")]
+fn statvfs_linux(path: &str) -> Result<Statvfs, io::Error> {
     let mut buf: libc_statvfs = unsafe { std::mem::zeroed() };
     let c_path = std::ffi::CString::new(path)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid path"))?;
@@ -250,7 +289,7 @@ fn statvfs(path: &str) -> Result<Statvfs, io::Error> {
     })
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[repr(C)]
 struct libc_statvfs {
     f_bsize: u64,
@@ -267,10 +306,41 @@ struct libc_statvfs {
     __f_spare: [i32; 6],
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 extern "C" {
     #[link_name = "statvfs"]
     fn raw_statvfs(path: *const std::ffi::c_char, buf: *mut libc_statvfs) -> std::ffi::c_int;
+}
+
+#[cfg(target_os = "macos")]
+fn parse_mount_line(line: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = line.splitn(2, " on ").collect();
+    if parts.len() < 2 {
+        return None;
+    }
+    let device = parts[0].to_string();
+    let rest = parts[1];
+    let mount_point = rest.split(" (").next()?.to_string();
+    Some((device, mount_point))
+}
+
+#[cfg(target_os = "macos")]
+fn statfs_macos(path: &str) -> Result<(String, String), io::Error> {
+    let output = std::process::Command::new("df")
+        .args(&["-P", "-k", path])
+        .output()?;
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout_str.trim().lines().collect();
+    if lines.len() < 2 {
+        return Err(io::Error::new(io::ErrorKind::Other, "df output too short"));
+    }
+    let parts: Vec<&str> = lines[1].split_whitespace().collect();
+    if parts.len() < 5 {
+        return Err(io::Error::new(io::ErrorKind::Other, "unexpected df format"));
+    }
+    let device = parts[0].to_string();
+    let info = format!("{} {} {} {}", parts[1], parts[2], parts[3], parts[4]);
+    Ok((device, info))
 }
 
 fn print_header(out: &mut impl Write) -> Result<(), io::Error> {
@@ -278,13 +348,13 @@ fn print_header(out: &mut impl Write) -> Result<(), io::Error> {
     Ok(())
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn print_mount_entry(out: &mut impl Write, mount: &MountEntry, human_readable: bool) -> Result<(), io::Error> {
-    let stat = statvfs(&mount.mount_point)?;
+    let stat = statvfs_linux(&mount.mount_point)?;
     print_statvfs_line(out, &mount.device, &mount.mount_point, &stat, human_readable)
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn print_statvfs_line(out: &mut impl Write, device: &str, mount_point: &str, stat: &Statvfs, human_readable: bool) -> Result<(), io::Error> {
     let total = stat.block_size * stat.blocks;
     let free = stat.block_size * stat.blocks_free;
@@ -306,6 +376,27 @@ fn print_statvfs_line(out: &mut impl Write, device: &str, mount_point: &str, sta
     };
 
     writeln!(out, "{:<20} {:>10} {:>10} {:>10} {:>4.0}%  {}", device, size_s, used_s, avail_s, use_pct, mount_point)?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn print_statfs_line(out: &mut impl Write, device: &str, mount_point: &str, info: &str, _human_readable: bool) -> Result<(), io::Error> {
+    let parts: Vec<&str> = info.split_whitespace().collect();
+    if parts.len() >= 4 {
+        let total_kb: u64 = parts[0].parse().unwrap_or(0);
+        let used_kb: u64 = parts[1].parse().unwrap_or(0);
+        let avail_kb: u64 = parts[2].parse().unwrap_or(0);
+        let use_pct_str = parts[3].trim_end_matches('%');
+        let use_pct: f64 = use_pct_str.parse().unwrap_or(0.0);
+
+        writeln!(out, "{:<20} {:>10} {:>10} {:>10} {:>4.0}%  {}",
+            device,
+            format!("{}K", total_kb),
+            format!("{}K", used_kb),
+            format!("{}K", avail_kb),
+            use_pct,
+            mount_point)?;
+    }
     Ok(())
 }
 

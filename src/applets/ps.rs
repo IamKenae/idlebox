@@ -12,7 +12,7 @@ impl Applet for PsApplet {
         "Report a snapshot of the current processes"
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let mut show_all = false;
         let mut custom_cols: Option<Vec<String>> = None;
@@ -59,7 +59,63 @@ impl Applet for PsApplet {
         };
 
         for entry in &entries {
-            print_entry(&mut out, entry, &col_vec)?;
+            print_entry_linux(&mut out, entry, &col_vec)?;
+        }
+
+        Ok(0)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        let mut show_all = false;
+        let mut custom_cols: Option<Vec<String>> = None;
+
+        for arg in args {
+            match arg.as_str() {
+                "-e" | "-A" => show_all = true,
+                _ => {}
+            }
+        }
+
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+
+        let default_cols = vec!["pid".to_string(), "tty".to_string(), "stat".to_string(), "time".to_string(), "cmd".to_string()];
+        let cols_ref: &[String] = match &custom_cols {
+            Some(ref c) => c.as_slice(),
+            None => default_cols.as_slice(),
+        };
+        let col_vec: Vec<&str> = cols_ref.iter().map(|s| s.as_str()).collect();
+
+        print_header(&mut out, &col_vec)?;
+
+        let ps_args: Vec<&str> = if show_all {
+            vec!["-eo", "pid,tty,stat,time,comm"]
+        } else {
+            vec!["-o", "pid,tty,stat,time,comm"]
+        };
+
+        let output = std::process::Command::new("ps")
+            .args(&ps_args)
+            .output()?;
+
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        let mut first = true;
+        for line in stdout_str.lines() {
+            if first {
+                first = false;
+                continue;
+            }
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 5 {
+                let pid = parts[0].parse::<u32>().unwrap_or(0);
+                let tty = parts[1].to_string();
+                let stat = parts[2].to_string();
+                let time = parts[3].to_string();
+                let cmd = parts[4..].join(" ");
+                let entry = ProcEntry { pid, tty, stat, time, cmd };
+                print_entry_macos(&mut out, &entry, &col_vec)?;
+            }
         }
 
         Ok(0)
@@ -114,7 +170,7 @@ impl Applet for PsApplet {
                 let cmd = parts[0].trim_matches('"');
                 let pid_str = parts[1].trim_matches('"');
                 if let Ok(pid) = pid_str.parse::<u32>() {
-                    print_entry(&mut out, &WinProcEntry { pid, cmd: cmd.to_string() }, &col_vec)?;
+                    print_entry_windows(&mut out, pid, cmd, &col_vec)?;
                 }
             }
         }
@@ -122,7 +178,7 @@ impl Applet for PsApplet {
         Ok(0)
     }
 
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         eprintln!("ps: not supported on this platform");
         Ok(1)
@@ -139,7 +195,6 @@ impl Applet for PsApplet {
     }
 }
 
-#[cfg(unix)]
 struct ProcEntry {
     pid: u32,
     tty: String,
@@ -148,13 +203,7 @@ struct ProcEntry {
     cmd: String,
 }
 
-#[cfg(windows)]
-struct WinProcEntry {
-    pid: u32,
-    cmd: String,
-}
-
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn read_all_proc_entries(show_all: bool) -> Result<Vec<ProcEntry>, io::Error> {
     use std::fs;
     let mut entries = Vec::new();
@@ -202,7 +251,7 @@ fn read_all_proc_entries(show_all: bool) -> Result<Vec<ProcEntry>, io::Error> {
     Ok(entries)
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 struct ProcStat {
     comm: String,
     state: String,
@@ -210,7 +259,7 @@ struct ProcStat {
     cpu_time: String,
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn read_proc_stat(pid: u32) -> Option<ProcStat> {
     use std::fs;
     let path = format!("/proc/{}/stat", pid);
@@ -247,7 +296,7 @@ fn read_proc_stat(pid: u32) -> Option<ProcStat> {
     })
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn format_tty(tty_nr: u64) -> String {
     if tty_nr == 0 {
         return "?".to_string();
@@ -261,7 +310,7 @@ fn format_tty(tty_nr: u64) -> String {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn read_proc_cmdline(pid: u32) -> Option<String> {
     use std::fs;
     let path = format!("/proc/{}/cmdline", pid);
@@ -277,7 +326,7 @@ fn read_proc_cmdline(pid: u32) -> Option<String> {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn get_ppid(pid: u32) -> Option<u32> {
     use std::fs;
     let path = format!("/proc/{}/stat", pid);
@@ -307,8 +356,25 @@ fn print_header(out: &mut impl Write, cols: &[&str]) -> Result<(), io::Error> {
     Ok(())
 }
 
-#[cfg(unix)]
-fn print_entry(out: &mut impl Write, entry: &ProcEntry, cols: &[&str]) -> Result<(), io::Error> {
+#[cfg(target_os = "linux")]
+fn print_entry_linux(out: &mut impl Write, entry: &ProcEntry, cols: &[&str]) -> Result<(), io::Error> {
+    let mut parts = Vec::new();
+    for col in cols {
+        match *col {
+            "pid" => parts.push(format!("{:>8}", entry.pid)),
+            "tty" => parts.push(format!("{:<8}", entry.tty)),
+            "stat" => parts.push(format!("{:<6}", entry.stat)),
+            "time" => parts.push(format!("{:>8}", entry.time)),
+            "cmd" | "command" => parts.push(entry.cmd.clone()),
+            _ => parts.push(String::new()),
+        }
+    }
+    writeln!(out, "{}", parts.join(" "))?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn print_entry_macos(out: &mut impl Write, entry: &ProcEntry, cols: &[&str]) -> Result<(), io::Error> {
     let mut parts = Vec::new();
     for col in cols {
         match *col {
@@ -325,12 +391,12 @@ fn print_entry(out: &mut impl Write, entry: &ProcEntry, cols: &[&str]) -> Result
 }
 
 #[cfg(windows)]
-fn print_entry(out: &mut impl Write, entry: &WinProcEntry, cols: &[&str]) -> Result<(), io::Error> {
+fn print_entry_windows(out: &mut impl Write, pid: u32, cmd: &str, cols: &[&str]) -> Result<(), io::Error> {
     let mut parts = Vec::new();
     for col in cols {
         match *col {
-            "pid" => parts.push(format!("{:>8}", entry.pid)),
-            "cmd" | "command" => parts.push(entry.cmd.clone()),
+            "pid" => parts.push(format!("{:>8}", pid)),
+            "cmd" | "command" => parts.push(cmd.to_string()),
             "tty" | "stat" | "time" => parts.push("-".to_string()),
             _ => parts.push(String::new()),
         }

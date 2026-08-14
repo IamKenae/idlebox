@@ -12,13 +12,40 @@ impl Applet for UptimeApplet {
         "Tell how long the system has been running"
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let stdout = io::stdout();
         let mut out = stdout.lock();
 
-        let uptime_secs = parse_uptime()?;
-        let (load1, load5, load15, _running, _total) = parse_loadavg()?;
+        let uptime_secs = parse_uptime_linux()?;
+        let (load1, load5, load15, _running, _total) = parse_loadavg_linux()?;
+
+        let current_time = current_time_string();
+
+        let days = uptime_secs / 86400;
+        let remaining = uptime_secs % 86400;
+        let hours = remaining / 3600;
+        let minutes = (remaining % 3600) / 60;
+
+        let uptime_str = if days > 0 {
+            format!("up {} day{}, {:02}:{:02}", days, if days == 1 { "" } else { "s" }, hours, minutes)
+        } else {
+            format!("up {:02}:{:02}", hours, minutes)
+        };
+
+        writeln!(out, " {}  {},  1 user,  load average: {:.2}, {:.2}, {:.2}",
+            current_time, uptime_str, load1, load5, load15)?;
+
+        Ok(0)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+
+        let uptime_secs = get_uptime_macos()?;
+        let (load1, load5, load15) = get_loadavg_macos()?;
 
         let current_time = current_time_string();
 
@@ -63,7 +90,7 @@ impl Applet for UptimeApplet {
         Ok(0)
     }
 
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         eprintln!("uptime: not supported on this platform");
         Ok(1)
@@ -76,8 +103,8 @@ impl Applet for UptimeApplet {
     }
 }
 
-#[cfg(unix)]
-fn parse_uptime() -> Result<u64, io::Error> {
+#[cfg(target_os = "linux")]
+fn parse_uptime_linux() -> Result<u64, io::Error> {
     use std::fs;
     let content = fs::read_to_string("/proc/uptime")?;
     let parts: Vec<&str> = content.split_whitespace().collect();
@@ -89,8 +116,8 @@ fn parse_uptime() -> Result<u64, io::Error> {
     Ok(secs as u64)
 }
 
-#[cfg(unix)]
-fn parse_loadavg() -> Result<(f64, f64, f64, u32, u32), io::Error> {
+#[cfg(target_os = "linux")]
+fn parse_loadavg_linux() -> Result<(f64, f64, f64, u32, u32), io::Error> {
     use std::fs;
     let content = fs::read_to_string("/proc/loadavg")?;
     let parts: Vec<&str> = content.split_whitespace().collect();
@@ -109,6 +136,47 @@ fn parse_loadavg() -> Result<(f64, f64, f64, u32, u32), io::Error> {
     let total: u32 = task_parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
 
     Ok((load1, load5, load15, running, total))
+}
+
+#[cfg(target_os = "macos")]
+fn get_uptime_macos() -> Result<u64, io::Error> {
+    let output = std::process::Command::new("sysctl")
+        .arg("-n").arg("kern.boottime")
+        .output()?;
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let stdout_str = stdout_str.trim();
+    if let Some(start) = stdout_str.find("sec = ") {
+        let rest = &stdout_str[start + 6..];
+        if let Some(end) = rest.find(',') {
+            let secs_str = rest[..end].trim();
+            let boot_secs: u64 = secs_str.parse().unwrap_or(0);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            return Ok(now.saturating_sub(boot_secs));
+        }
+    }
+    Ok(0)
+}
+
+#[cfg(target_os = "macos")]
+fn get_loadavg_macos() -> Result<(f64, f64, f64), io::Error> {
+    let output = std::process::Command::new("sysctl")
+        .arg("-n").arg("vm.loadavg")
+        .output()?;
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let stdout_str = stdout_str.trim();
+    let cleaned = stdout_str.replace('{', "").replace('}', "");
+    let parts: Vec<&str> = cleaned.split_whitespace().collect();
+    if parts.len() >= 3 {
+        let load1: f64 = parts[0].parse().unwrap_or(0.0);
+        let load5: f64 = parts[1].parse().unwrap_or(0.0);
+        let load15: f64 = parts[2].parse().unwrap_or(0.0);
+        Ok((load1, load5, load15))
+    } else {
+        Ok((0.0, 0.0, 0.0))
+    }
 }
 
 #[cfg(unix)]
