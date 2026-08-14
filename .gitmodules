@@ -1,0 +1,3 @@
+[submodule "idlebox-docs"]
+	path = idlebox-docs
+	url = git@github.com:IamKenae/idlebox-docs.git

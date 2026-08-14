@@ -1,0 +1,111 @@
+<div align="center">
+
+# 空闲盒 (IdleBox)
+
+**告别 Busy，拥抱 Idle。**
+
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
+[![Size](https://img.shields.io/badge/size-~360KB-green.svg)](target/release/idlebox)
+
+[🇬🇧 English](README.md)
+
+</div>
+
+---
+
+## 简介
+
+**空闲盒 (IdleBox)** 是一个独立、轻量、高颜值的 BusyBox/POSIX 兼容工具箱，使用纯 Rust 编写，零外部依赖。
+
+### 设计理念
+
+> 告别 Busy，拥抱 Idle。
+
+BusyBox 承载了嵌入式 Linux 的半壁江山，但它的 C 代码库已走过了二十余年。IdleBox 希望以现代语言 Rust 重新诠释这一经典理念——在保持 POSIX 兼容性的同时，追求更小的体积、更高的安全性、以及更愉悦的终端体验。
+
+---
+
+## 特性
+
+- **零依赖** — 仅使用 Rust 标准库，不引入任何第三方 crate
+- **极致精简** — Release 构建约 360KB，适合嵌入式与容器场景
+- **POSIX 兼容** — 常见 Unix 工具的原生替代
+- **模块化设计** — 通过 Applet 机制轻松扩展
+- **符号链接支持** — 通过符号链接直接调用各 Applet
+- **高颜值终端** — 内置 ANSI 彩色输出，让命令行赏心悦目
+
+---
+
+## 已实现的 Applet
+
+| Applet | 说明 | 亮点 |
+|--------|------|------|
+| `echo` | 输出文本到标准输出 | 支持 `-n` 不换行、`-e` 转义解释 |
+| `relax` | IdleBox 特色：休息一下 | 独特的放松体验，体现 "Idle" 精神 |
+| `cat` | 连接文件并输出到标准输出 | 支持 `-n` 行号、`-b` 非空行号、`-A` 显示不可见字符、stdin 管道 |
+| `ls` | 列出目录内容 | **ANSI 炫彩输出**：目录蓝色、可执行文件绿色、压缩包红色、链接青色；支持 `-l` 长格式、`-a` 隐藏文件、`-h` 人类可读大小 |
+
+---
+
+## 快速开始
+
+### 构建
+
+```bash
+# Debug 构建
+cargo build
+
+# Release 构建（极致优化体积）
+cargo build --release
+
+# 查看二进制大小
+ls -lh target/release/idlebox
+```
+
+### 运行
+
+```bash
+# 直接调用
+idlebox echo "Hello, IdleBox!"
+idlebox cat -n README.md
+idlebox ls --color=auto -lah
+
+# 通过符号链接
+cd target/release
+ln -s idlebox echo
+ln -s idlebox ls
+./echo "Hello via symlink!"
+./ls --color=auto
+```
+
+### 测试
+
+```bash
+cargo test
+```
+
+---
+
+## 添加新 Applet
+
+1. 在 `src/applets/` 下创建新文件
+2. 实现 `Applet` trait
+3. 在 `src/applets/mod.rs` 中导出
+4. 在 `src/core/dispatcher.rs` 中注册
+
+---
+
+## 架构文档
+
+详细的架构设计文档已迁移至独立的文档仓库，以保持主仓库代码的极简与纯粹。
+
+> 📖 **查看架构文档**: [IdleBox Docs](https://github.com/IamKenae/idlebox-docs)
+
+---
+
+## 许可证
+
+[Apache-2.0](LICENSE)
+
+Copyright (c) IdleBox Contributors.
