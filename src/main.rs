@@ -35,10 +35,7 @@ fn main() {
     
     match dispatcher.dispatch(applet_name, applet_args) {
         Ok(exit_code) => process::exit(exit_code),
-        Err(e) => {
-            eprintln!("{}", e);
-            process::exit(1);
-        }
+        Err(_) => process::exit(1),
     }
 }
 

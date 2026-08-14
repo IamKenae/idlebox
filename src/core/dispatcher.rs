@@ -1,39 +1,45 @@
 use crate::core::Applet;
 use crate::applets::{EchoApplet, RelaxApplet};
 
-pub struct Dispatcher {
-    applets: Vec<Box<dyn Applet>>,
-}
+pub struct Dispatcher;
 
 impl Dispatcher {
     pub fn new() -> Self {
-        let mut dispatcher = Self {
-            applets: Vec::new(),
-        };
-        dispatcher.register_all();
-        dispatcher
-    }
-    
-    fn register_all(&mut self) {
-        self.register(Box::new(EchoApplet));
-        self.register(Box::new(RelaxApplet));
-    }
-    
-    fn register(&mut self, applet: Box<dyn Applet>) {
-        self.applets.push(applet);
+        Self
     }
     
     pub fn dispatch(&self, name: &str, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
-        for applet in &self.applets {
-            if applet.name() == name {
-                return applet.run(args);
+        let has_help = args.iter().any(|a| a == "-h" || a == "--help");
+        
+        match name {
+            "echo" => {
+                let applet = EchoApplet;
+                if has_help {
+                    applet.help();
+                    Ok(0)
+                } else {
+                    applet.run(args)
+                }
+            }
+            "relax" => {
+                let applet = RelaxApplet;
+                if has_help {
+                    applet.help();
+                    Ok(0)
+                } else {
+                    applet.run(args)
+                }
+            }
+            _ => {
+                eprintln!("idlebox: applet not found");
+                Err("applet not found".into())
             }
         }
-        Err(format!("idlebox: applet not found: {}", name).into())
     }
     
     pub fn list_applets(&self) {
-        for applet in &self.applets {
+        let applets: Vec<&dyn Applet> = vec![&EchoApplet, &RelaxApplet];
+        for applet in applets {
             println!("{:<12} {}", applet.name(), applet.description());
         }
     }

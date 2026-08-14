@@ -46,3 +46,28 @@ fn test_list_applets() {
     assert!(stdout.contains("echo"));
     assert!(stdout.contains("relax"));
 }
+
+#[test]
+fn test_help_short_flag() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "relax", "-h"])
+        .output()
+        .expect("failed to execute process");
+    
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Usage:"));
+    assert!(stdout.contains("relax"));
+}
+
+#[test]
+fn test_help_long_flag() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "echo", "--help"])
+        .output()
+        .expect("failed to execute process");
+    
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Usage:"));
+}
