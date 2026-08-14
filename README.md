@@ -42,9 +42,14 @@ BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this
 | Applet | Description | Highlights |
 |--------|-------------|------------|
 | `echo` | Print text to standard output | Supports `-n` (no newline), `-e` (escape interpretation) |
-| `relax` | IdleBox special: take a break and relax | A unique relaxation experience, embodying the "Idle" spirit |
 | `cat` | Concatenate files and print to standard output | Supports `-n` line numbers, `-b` non-blank numbering, `-A` show invisibles, stdin pipe |
 | `ls` | List directory contents | **ANSI colorized output**: dirs in blue, executables in green, archives in red, symlinks in cyan; supports `-l` long format, `-a` hidden files, `-h` human-readable sizes |
+| `mkdir` | Create directories | Supports `-p` for nested creation, multiple directories in one call |
+| `rm` | Remove files or directories | Supports `-r` recursive, `-f` force, combined `-rf` |
+| `cp` | Copy files and directories | Supports `-r` recursive, `-f` force, multi-source to directory |
+| `mv` | Move (rename) files and directories | Atomic rename with automatic cross-device fallback (copy + delete) |
+| `relax` | IdleBox special: take a break and relax | A unique relaxation experience, embodying the "Idle" spirit |
+| `--install` | Automated applet deployment via symlinks | Creates symlinks for all applets in a target directory; defaults to `/usr/local/bin` |
 
 ---
 
@@ -70,6 +75,10 @@ ls -lh target/release/idlebox
 idlebox echo "Hello, IdleBox!"
 idlebox cat -n README.md
 idlebox ls --color=auto -lah
+
+# Automated install (create symlinks for all applets)
+idlebox --install              # Install to /usr/local/bin
+idlebox --install /tmp/bin     # Install to a custom directory
 
 # Via symlink
 cd target/release

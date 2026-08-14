@@ -1,5 +1,5 @@
 use crate::core::Applet;
-use crate::applets::{CatApplet, EchoApplet, LsApplet, RelaxApplet};
+use crate::applets::{CatApplet, CpApplet, EchoApplet, LsApplet, MkdirApplet, MvApplet, RelaxApplet, RmApplet};
 
 pub struct Dispatcher;
 
@@ -15,6 +15,15 @@ impl Dispatcher {
         match name {
             "cat" => {
                 let applet = CatApplet;
+                if has_help || has_h_short {
+                    applet.help();
+                    Ok(0)
+                } else {
+                    applet.run(args)
+                }
+            }
+            "cp" => {
+                let applet = CpApplet;
                 if has_help || has_h_short {
                     applet.help();
                     Ok(0)
@@ -40,8 +49,35 @@ impl Dispatcher {
                     applet.run(args)
                 }
             }
+            "mkdir" => {
+                let applet = MkdirApplet;
+                if has_help || has_h_short {
+                    applet.help();
+                    Ok(0)
+                } else {
+                    applet.run(args)
+                }
+            }
+            "mv" => {
+                let applet = MvApplet;
+                if has_help || has_h_short {
+                    applet.help();
+                    Ok(0)
+                } else {
+                    applet.run(args)
+                }
+            }
             "relax" => {
                 let applet = RelaxApplet;
+                if has_help || has_h_short {
+                    applet.help();
+                    Ok(0)
+                } else {
+                    applet.run(args)
+                }
+            }
+            "rm" => {
+                let applet = RmApplet;
                 if has_help || has_h_short {
                     applet.help();
                     Ok(0)
@@ -56,8 +92,15 @@ impl Dispatcher {
         }
     }
     
+    pub fn applet_names(&self) -> Vec<&'static str> {
+        vec!["cat", "cp", "echo", "ls", "mkdir", "mv", "relax", "rm"]
+    }
+
     pub fn list_applets(&self) {
-        let applets: Vec<&dyn Applet> = vec![&CatApplet, &EchoApplet, &LsApplet, &RelaxApplet];
+        let applets: Vec<&dyn Applet> = vec![
+            &CatApplet, &CpApplet, &EchoApplet, &LsApplet,
+            &MkdirApplet, &MvApplet, &RelaxApplet, &RmApplet,
+        ];
         for applet in applets {
             println!("{:<12} {}", applet.name(), applet.description());
         }

@@ -32,6 +32,17 @@ fn main() {
         dispatcher.list_applets();
         process::exit(0);
     }
+
+    if applet_name == "--install" {
+        let target = applet_args.first().map(|s| s.as_str());
+        match crate::core::install::install(target) {
+            Ok(code) => process::exit(code),
+            Err(e) => {
+                eprintln!("idlebox: install failed: {}", e);
+                process::exit(1);
+            }
+        }
+    }
     
     match dispatcher.dispatch(applet_name, applet_args) {
         Ok(exit_code) => process::exit(exit_code),
@@ -45,6 +56,7 @@ fn print_usage(dispatcher: &Dispatcher) {
     println!("Usage:");
     println!("  idlebox <applet> [args...]    # Run an applet");
     println!("  idlebox list                  # List all applets");
+    println!("  idlebox --install [PATH]      # Install symlinks for all applets");
     println!("  ./<applet> [args...]          # Run via symlink");
     println!();
     println!("Available applets:");

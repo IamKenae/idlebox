@@ -42,9 +42,14 @@ BusyBox 承载了嵌入式 Linux 的半壁江山，但它的 C 代码库已走�
 | Applet | 说明 | 亮点 |
 |--------|------|------|
 | `echo` | 输出文本到标准输出 | 支持 `-n` 不换行、`-e` 转义解释 |
-| `relax` | IdleBox 特色：休息一下 | 独特的放松体验，体现 "Idle" 精神 |
 | `cat` | 连接文件并输出到标准输出 | 支持 `-n` 行号、`-b` 非空行号、`-A` 显示不可见字符、stdin 管道 |
 | `ls` | 列出目录内容 | **ANSI 炫彩输出**：目录蓝色、可执行文件绿色、压缩包红色、链接青色；支持 `-l` 长格式、`-a` 隐藏文件、`-h` 人类可读大小 |
+| `mkdir` | 创建目录 | 支持 `-p` 嵌套创建、一次创建多个目录 |
+| `rm` | 删除文件或目录 | 支持 `-r` 递归、`-f` 强制、组合 `-rf` |
+| `cp` | 复制文件与目录 | 支持 `-r` 递归、`-f` 强制、多源复制到目标目录 |
+| `mv` | 移动（重命名）文件与目录 | 原子重命名，自动处理跨设备降级（复制 + 删除） |
+| `relax` | IdleBox 特色：休息一下 | 独特的放松体验，体现 "Idle" 精神 |
+| `--install` | 通过符号链接自动部署 Applet | 在目标目录为所有 Applet 创建符号链接；默认安装到 `/usr/local/bin` |
 
 ---
 
@@ -70,6 +75,10 @@ ls -lh target/release/idlebox
 idlebox echo "Hello, IdleBox!"
 idlebox cat -n README.md
 idlebox ls --color=auto -lah
+
+# 自动安装（为所有 Applet 创建符号链接）
+idlebox --install              # 安装到 /usr/local/bin
+idlebox --install /tmp/bin     # 安装到自定义目录
 
 # 通过符号链接
 cd target/release
