@@ -18,6 +18,7 @@ codegen-units = 1
 panic = "abort"
 strip = true
 debug = false
+overflow-checks = false
 
 [profile.release.build-override]
 opt-level = "z"

@@ -1,5 +1,8 @@
 use crate::core::Applet;
+
+#[cfg(unix)]
 use std::ffi::CString;
+#[cfg(unix)]
 use std::path::Path;
 
 pub struct ChgrpApplet;
@@ -13,6 +16,7 @@ impl Applet for ChgrpApplet {
         "Change group ownership"
     }
 
+    #[cfg(unix)]
     fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let mut recursive = false;
         let mut group_spec: Option<&str> = None;
@@ -80,6 +84,12 @@ impl Applet for ChgrpApplet {
         Ok(exit_code)
     }
 
+    #[cfg(not(unix))]
+    fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        eprintln!("chgrp: not supported on this platform");
+        Ok(1)
+    }
+
     fn help(&self) {
         println!("Usage: chgrp [OPTION]... GROUP FILE...");
         println!();
@@ -89,9 +99,14 @@ impl Applet for ChgrpApplet {
         println!("  -R, --recursive   Change files and directories recursively");
         println!();
         println!("GROUP may be a numeric GID or a group name.");
+        #[cfg(not(unix))]
+        println!();
+        #[cfg(not(unix))]
+        println!("Note: this applet is not supported on this platform.");
     }
 }
 
+#[cfg(unix)]
 fn resolve_gid(s: &str) -> Result<u32, String> {
     if let Ok(n) = s.parse::<u32>() {
         return Ok(n);
@@ -104,6 +119,7 @@ fn resolve_gid(s: &str) -> Result<u32, String> {
     unsafe { Ok((*ptr).gr_gid) }
 }
 
+#[cfg(unix)]
 fn apply_chgrp(path: &str, uid: u32, gid: u32, recursive: bool) -> Result<(), std::io::Error> {
     let p = Path::new(path);
     let c_path = CString::new(path).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
@@ -135,6 +151,7 @@ fn apply_chgrp(path: &str, uid: u32, gid: u32, recursive: bool) -> Result<(), st
     Ok(())
 }
 
+#[cfg(unix)]
 #[repr(C)]
 struct Group {
     gr_name: *const i8,
@@ -143,6 +160,7 @@ struct Group {
     gr_mem: *const *const i8,
 }
 
+#[cfg(unix)]
 extern "C" {
     #[link_name = "getgrnam"]
     fn raw_getgrnam(name: *const i8) -> *const Group;

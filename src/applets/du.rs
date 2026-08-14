@@ -1,8 +1,10 @@
 use crate::core::Applet;
 use std::fs;
 use std::io::{self, Write};
-use std::os::unix::fs::MetadataExt;
 use std::path::Path;
+
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
 
 pub struct DuApplet;
 
@@ -127,19 +129,29 @@ impl Applet for DuApplet {
     }
 }
 
+#[cfg(unix)]
+fn disk_usage(metadata: &fs::Metadata) -> u64 {
+    metadata.blocks() * 512
+}
+
+#[cfg(not(unix))]
+fn disk_usage(metadata: &fs::Metadata) -> u64 {
+    metadata.len()
+}
+
 fn dir_size(path: &Path) -> Result<u64, io::Error> {
     let metadata = fs::metadata(path)?;
     if metadata.is_file() {
-        return Ok(metadata.blocks() * 512);
+        return Ok(disk_usage(&metadata));
     }
 
-    let mut total = metadata.blocks() * 512;
+    let mut total = disk_usage(&metadata);
 
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         let em = entry.metadata()?;
         if em.is_file() {
-            total += em.blocks() * 512;
+            total += disk_usage(&em);
         } else if em.is_dir() {
             total += dir_size(&entry.path())?;
         }
@@ -158,16 +170,16 @@ fn du_tree(
     let metadata = fs::metadata(path)?;
 
     if metadata.is_file() {
-        return Ok(metadata.blocks() * 512);
+        return Ok(disk_usage(&metadata));
     }
 
-    let mut total = metadata.blocks() * 512;
+    let mut total = disk_usage(&metadata);
 
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         let em = entry.metadata()?;
         if em.is_file() {
-            total += em.blocks() * 512;
+            total += disk_usage(&em);
         } else if em.is_dir() {
             let child_total = du_tree(&entry.path(), current_depth + 1, max_depth, human_readable, out)?;
             total += child_total;

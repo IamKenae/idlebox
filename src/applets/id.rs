@@ -12,6 +12,7 @@ impl Applet for IdApplet {
         "Print real and effective user and group IDs"
     }
 
+    #[cfg(unix)]
     fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let mut uid_only = false;
         let mut gid_only = false;
@@ -179,6 +180,21 @@ impl Applet for IdApplet {
         Ok(0)
     }
 
+    #[cfg(windows)]
+    fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        let username = std::env::var("USERNAME").unwrap_or_else(|_| "unknown".to_string());
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+        writeln!(out, "uid=0({}) gid=0", username)?;
+        Ok(0)
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        eprintln!("id: not supported on this platform");
+        Ok(1)
+    }
+
     fn help(&self) {
         println!("Usage: id [OPTION]... [USER]");
         println!();
@@ -192,12 +208,14 @@ impl Applet for IdApplet {
     }
 }
 
+#[cfg(unix)]
 struct PasswdInfo {
     name: String,
     uid: u32,
     gid: u32,
 }
 
+#[cfg(unix)]
 #[repr(C)]
 struct Passwd {
     pw_name: *const i8,
@@ -209,6 +227,7 @@ struct Passwd {
     pw_shell: *const i8,
 }
 
+#[cfg(unix)]
 #[repr(C)]
 struct Group {
     gr_name: *const i8,
@@ -217,6 +236,7 @@ struct Group {
     gr_mem: *const *const i8,
 }
 
+#[cfg(unix)]
 fn c_char_to_string(ptr: *const i8) -> String {
     if ptr.is_null() {
         return String::new();
@@ -231,6 +251,7 @@ fn c_char_to_string(ptr: *const i8) -> String {
     }
 }
 
+#[cfg(unix)]
 fn get_username_by_uid(uid: u32) -> Option<String> {
     let ptr = unsafe { raw_getpwuid(uid) };
     if ptr.is_null() {
@@ -245,6 +266,7 @@ fn get_username_by_uid(uid: u32) -> Option<String> {
     }
 }
 
+#[cfg(unix)]
 fn get_passwd_by_name(name: &str) -> Option<PasswdInfo> {
     let c_name = std::ffi::CString::new(name).ok()?;
     let ptr = unsafe { raw_getpwnam(c_name.as_ptr()) };
@@ -260,6 +282,7 @@ fn get_passwd_by_name(name: &str) -> Option<PasswdInfo> {
     }
 }
 
+#[cfg(unix)]
 fn get_group_name_by_gid(gid: u32) -> Option<String> {
     let ptr = unsafe { raw_getgrgid(gid) };
     if ptr.is_null() {
@@ -274,6 +297,7 @@ fn get_group_name_by_gid(gid: u32) -> Option<String> {
     }
 }
 
+#[cfg(unix)]
 fn get_groups() -> Vec<u32> {
     let mut ngroups: i32 = 64;
     let mut buf: Vec<u32> = vec![0; ngroups as usize];
@@ -285,6 +309,7 @@ fn get_groups() -> Vec<u32> {
     buf
 }
 
+#[cfg(unix)]
 fn get_supplementary_gids_by_name(username: &str) -> Vec<u32> {
     let c_name = match std::ffi::CString::new(username) {
         Ok(n) => n,
@@ -300,6 +325,7 @@ fn get_supplementary_gids_by_name(username: &str) -> Vec<u32> {
     buf.iter().map(|&g| g as u32).collect()
 }
 
+#[cfg(unix)]
 fn format_groups(gids: &[u32], name_only: bool) -> String {
     let parts: Vec<String> = gids
         .iter()
@@ -320,6 +346,7 @@ fn format_groups(gids: &[u32], name_only: bool) -> String {
     parts.join(",")
 }
 
+#[cfg(unix)]
 extern "C" {
     #[link_name = "getuid"]
     fn raw_getuid() -> u32;

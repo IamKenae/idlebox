@@ -1,5 +1,8 @@
 use crate::core::Applet;
+
+#[cfg(unix)]
 use std::ffi::CString;
+#[cfg(unix)]
 use std::path::Path;
 
 pub struct ChownApplet;
@@ -13,6 +16,7 @@ impl Applet for ChownApplet {
         "Change file owner and group"
     }
 
+    #[cfg(unix)]
     fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let mut recursive = false;
         let mut owner_spec: Option<&str> = None;
@@ -78,6 +82,12 @@ impl Applet for ChownApplet {
         Ok(exit_code)
     }
 
+    #[cfg(not(unix))]
+    fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        eprintln!("chown: not supported on this platform");
+        Ok(1)
+    }
+
     fn help(&self) {
         println!("Usage: chown [OPTION]... [OWNER][:[GROUP]] FILE...");
         println!();
@@ -88,9 +98,14 @@ impl Applet for ChownApplet {
         println!();
         println!("OWNER and GROUP may be numeric IDs or names.");
         println!("Examples: user, user:group, :group, 1000:1000");
+        #[cfg(not(unix))]
+        println!();
+        #[cfg(not(unix))]
+        println!("Note: this applet is not supported on this platform.");
     }
 }
 
+#[cfg(unix)]
 fn parse_owner_spec(spec: &str) -> Result<(u32, u32), String> {
     let uid = unsafe { raw_getuid() };
     let gid = unsafe { raw_getgid() };
@@ -122,6 +137,7 @@ fn parse_owner_spec(spec: &str) -> Result<(u32, u32), String> {
     }
 }
 
+#[cfg(unix)]
 fn resolve_uid(s: &str) -> Result<u32, String> {
     if let Ok(n) = s.parse::<u32>() {
         return Ok(n);
@@ -134,6 +150,7 @@ fn resolve_uid(s: &str) -> Result<u32, String> {
     unsafe { Ok((*ptr).pw_uid) }
 }
 
+#[cfg(unix)]
 fn resolve_gid(s: &str) -> Result<u32, String> {
     if let Ok(n) = s.parse::<u32>() {
         return Ok(n);
@@ -146,6 +163,7 @@ fn resolve_gid(s: &str) -> Result<u32, String> {
     unsafe { Ok((*ptr).gr_gid) }
 }
 
+#[cfg(unix)]
 fn apply_chown(path: &str, uid: u32, gid: u32, recursive: bool) -> Result<(), std::io::Error> {
     let p = Path::new(path);
     let c_path = CString::new(path).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
@@ -177,6 +195,7 @@ fn apply_chown(path: &str, uid: u32, gid: u32, recursive: bool) -> Result<(), st
     Ok(())
 }
 
+#[cfg(unix)]
 #[repr(C)]
 struct Passwd {
     pw_name: *const i8,
@@ -188,6 +207,7 @@ struct Passwd {
     pw_shell: *const i8,
 }
 
+#[cfg(unix)]
 #[repr(C)]
 struct Group {
     gr_name: *const i8,
@@ -196,6 +216,7 @@ struct Group {
     gr_mem: *const *const i8,
 }
 
+#[cfg(unix)]
 extern "C" {
     #[link_name = "getuid"]
     fn raw_getuid() -> u32;

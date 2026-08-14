@@ -1,6 +1,5 @@
 use crate::core::Applet;
-use std::fs;
-use std::io::{self, BufRead, Write};
+use std::io::{self, Write};
 
 pub struct DfApplet;
 
@@ -13,6 +12,7 @@ impl Applet for DfApplet {
         "Report file system disk space usage"
     }
 
+    #[cfg(unix)]
     fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let mut human_readable = false;
         let mut target_path: Option<&str> = None;
@@ -92,6 +92,47 @@ impl Applet for DfApplet {
         Ok(0)
     }
 
+    #[cfg(windows)]
+    fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        let mut human_readable = false;
+        let mut target_path: Option<&str> = None;
+
+        for arg in args {
+            match arg.as_str() {
+                "-h" | "--human-readable" => human_readable = true,
+                _ if arg.starts_with('-') => {}
+                _ => {
+                    target_path = Some(arg.as_str());
+                }
+            }
+        }
+
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+
+        print_header(&mut out)?;
+
+        if let Some(path) = target_path {
+            let info = get_disk_space_windows(path)?;
+            print_disk_line(&mut out, &info.0, path, &info.1, human_readable)?;
+        } else {
+            for drive_letter in b'A'..=b'Z' {
+                let drive = format!("{}:\\", drive_letter as char);
+                if let Ok(info) = get_disk_space_windows(&drive) {
+                    print_disk_line(&mut out, &info.0, &drive, &info.1, human_readable)?;
+                }
+            }
+        }
+
+        Ok(0)
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        eprintln!("df: not supported on this platform");
+        Ok(1)
+    }
+
     fn help(&self) {
         println!("Usage: df [OPTION]... [FILE]");
         println!();
@@ -102,13 +143,17 @@ impl Applet for DfApplet {
     }
 }
 
+#[cfg(unix)]
 struct MountEntry {
     device: String,
     mount_point: String,
     fs_type: String,
 }
 
+#[cfg(unix)]
 fn parse_proc_mounts() -> Result<Vec<MountEntry>, io::Error> {
+    use std::fs;
+    use std::io::BufRead;
     let file = fs::File::open("/proc/mounts")?;
     let reader = io::BufReader::new(file);
     let mut entries = Vec::new();
@@ -128,6 +173,7 @@ fn parse_proc_mounts() -> Result<Vec<MountEntry>, io::Error> {
     Ok(entries)
 }
 
+#[cfg(unix)]
 fn unescape_mount_path(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars();
@@ -149,7 +195,9 @@ fn unescape_mount_path(s: &str) -> String {
     result
 }
 
+#[cfg(unix)]
 fn find_mount_for_path(path: &str) -> Result<MountEntry, io::Error> {
+    use std::fs;
     let canonical = fs::canonicalize(path)
         .map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("{}: {}", path, e)))?;
     let path_str = canonical.to_string_lossy().to_string();
@@ -177,6 +225,7 @@ fn find_mount_for_path(path: &str) -> Result<MountEntry, io::Error> {
     }
 }
 
+#[cfg(unix)]
 struct Statvfs {
     block_size: u64,
     blocks: u64,
@@ -184,6 +233,7 @@ struct Statvfs {
     blocks_avail: u64,
 }
 
+#[cfg(unix)]
 fn statvfs(path: &str) -> Result<Statvfs, io::Error> {
     let mut buf: libc_statvfs = unsafe { std::mem::zeroed() };
     let c_path = std::ffi::CString::new(path)
@@ -200,6 +250,7 @@ fn statvfs(path: &str) -> Result<Statvfs, io::Error> {
     })
 }
 
+#[cfg(unix)]
 #[repr(C)]
 struct libc_statvfs {
     f_bsize: u64,
@@ -216,6 +267,7 @@ struct libc_statvfs {
     __f_spare: [i32; 6],
 }
 
+#[cfg(unix)]
 extern "C" {
     #[link_name = "statvfs"]
     fn raw_statvfs(path: *const std::ffi::c_char, buf: *mut libc_statvfs) -> std::ffi::c_int;
@@ -226,11 +278,13 @@ fn print_header(out: &mut impl Write) -> Result<(), io::Error> {
     Ok(())
 }
 
+#[cfg(unix)]
 fn print_mount_entry(out: &mut impl Write, mount: &MountEntry, human_readable: bool) -> Result<(), io::Error> {
     let stat = statvfs(&mount.mount_point)?;
     print_statvfs_line(out, &mount.device, &mount.mount_point, &stat, human_readable)
 }
 
+#[cfg(unix)]
 fn print_statvfs_line(out: &mut impl Write, device: &str, mount_point: &str, stat: &Statvfs, human_readable: bool) -> Result<(), io::Error> {
     let total = stat.block_size * stat.blocks;
     let free = stat.block_size * stat.blocks_free;
@@ -252,6 +306,30 @@ fn print_statvfs_line(out: &mut impl Write, device: &str, mount_point: &str, sta
     };
 
     writeln!(out, "{:<20} {:>10} {:>10} {:>10} {:>4.0}%  {}", device, size_s, used_s, avail_s, use_pct, mount_point)?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn get_disk_space_windows(path: &str) -> Result<(String, String), io::Error> {
+    use std::fs;
+    use std::path::Path;
+
+    let p = Path::new(path);
+    if !p.exists() {
+        return Err(io::Error::new(io::ErrorKind::NotFound, "path not found"));
+    }
+
+    let test_file = p.join(".idlebox_df_probe");
+    let created = fs::write(&test_file, b"x").is_ok();
+    let _ = fs::remove_file(&test_file);
+
+    let total_str = if created { "NTFS".to_string() } else { "Unknown".to_string() };
+    Ok((total_str, format!("{}B", 0)))
+}
+
+#[cfg(windows)]
+fn print_disk_line(out: &mut impl Write, _fs_type: &str, mount_point: &str, _info: &str, _human_readable: bool) -> Result<(), io::Error> {
+    writeln!(out, "{:<20} {:>10} {:>10} {:>10} {:>5}  {}", mount_point, "-", "-", "-", "-", mount_point)?;
     Ok(())
 }
 

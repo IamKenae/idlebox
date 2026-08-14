@@ -1,9 +1,11 @@
 use crate::core::Applet;
 use std::fs::{self, DirEntry, Metadata};
 use std::io::{self, Write};
-use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+
+#[cfg(unix)]
+use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
 pub struct LsApplet;
 
@@ -99,11 +101,17 @@ impl Applet for LsApplet {
 }
 
 impl LsApplet {
+    #[cfg(unix)]
     fn is_tty() -> bool {
         unsafe {
             let mut stat: libc_stat = std::mem::zeroed();
             fstat(1, &mut stat) == 0 && (stat.st_mode & S_IFMT == S_IFCHR)
         }
+    }
+
+    #[cfg(not(unix))]
+    fn is_tty() -> bool {
+        false
     }
 
     fn list_path(
@@ -120,7 +128,7 @@ impl LsApplet {
             return Err(io::Error::new(io::ErrorKind::NotFound, "No such file or directory"));
         }
 
-        if path.is_file() || path.is_symlink() {
+        if path.is_file() || path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
             let entry = Self::create_entry_from_path(path)?;
             if long_format {
                 Self::print_long(&entry, out, human_readable, use_color)?;
@@ -196,6 +204,7 @@ impl LsApplet {
         Ok(())
     }
 
+    #[cfg(unix)]
     fn print_long(entry: &DirEntry, out: &mut impl Write, human_readable: bool, use_color: bool) -> io::Result<()> {
         let metadata = entry.metadata()?;
         let file_type = metadata.file_type();
@@ -246,6 +255,46 @@ impl LsApplet {
         Ok(())
     }
 
+    #[cfg(not(unix))]
+    fn print_long(entry: &DirEntry, out: &mut impl Write, human_readable: bool, use_color: bool) -> io::Result<()> {
+        let metadata = entry.metadata()?;
+        let file_type = metadata.file_type();
+
+        let type_char = if file_type.is_dir() {
+            'd'
+        } else if file_type.is_symlink() {
+            'l'
+        } else {
+            '-'
+        };
+
+        let perms = Self::format_permissions_cross_platform(&metadata);
+        let size = metadata.len();
+        let mtime = Self::format_time(metadata.modified()?);
+
+        let name = entry.file_name().to_string_lossy().to_string();
+        let name_display = if use_color {
+            if let Some(color) = Self::get_color(&metadata, entry.path()) {
+                format!("\x1b[{}m{}\x1b[0m", color, name)
+            } else {
+                name.clone()
+            }
+        } else {
+            name.clone()
+        };
+
+        let size_display = if human_readable {
+            Self::human_readable_size(size)
+        } else {
+            size.to_string()
+        };
+
+        writeln!(out, "{}{} {:>3} {:>5} {:>5} {:>8} {} {}", type_char, perms, 1, "-", "-", size_display, mtime, name_display)?;
+
+        Ok(())
+    }
+
+    #[cfg(unix)]
     fn format_permissions(mode: u32) -> String {
         let mut result = String::with_capacity(9);
         
@@ -274,6 +323,16 @@ impl LsApplet {
         });
 
         result
+    }
+
+    #[cfg(not(unix))]
+    fn format_permissions_cross_platform(metadata: &Metadata) -> String {
+        let readonly = metadata.permissions().readonly();
+        if readonly {
+            "r--r--r--".to_string()
+        } else {
+            "rw-rw-rw-".to_string()
+        }
     }
 
     fn format_time(time: SystemTime) -> String {
@@ -367,9 +426,25 @@ impl LsApplet {
         }
 
         if metadata.is_file() {
-            let mode = metadata.mode();
-            if mode & 0o111 != 0 {
-                return Some("1;32");
+            #[cfg(unix)]
+            {
+                let mode = metadata.mode();
+                if mode & 0o111 != 0 {
+                    return Some("1;32");
+                }
+            }
+
+            #[cfg(not(unix))]
+            {
+                if !metadata.permissions().readonly() {
+                    if let Some(ext) = path.extension() {
+                        let ext = ext.to_string_lossy().to_lowercase();
+                        match ext.as_str() {
+                            "exe" | "bat" | "cmd" | "com" => return Some("1;32"),
+                            _ => {}
+                        }
+                    }
+                }
             }
 
             if let Some(ext) = path.extension() {
@@ -387,6 +462,7 @@ impl LsApplet {
     }
 }
 
+#[cfg(unix)]
 #[repr(C)]
 struct libc_stat {
     st_dev: u64,
@@ -409,9 +485,12 @@ struct libc_stat {
     _unused: [i64; 3],
 }
 
+#[cfg(unix)]
 const S_IFMT: u32 = 0o170000;
+#[cfg(unix)]
 const S_IFCHR: u32 = 0o020000;
 
+#[cfg(unix)]
 extern "C" {
     fn fstat(fd: i32, stat: *mut libc_stat) -> i32;
 }

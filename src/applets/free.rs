@@ -1,6 +1,5 @@
 use crate::core::Applet;
-use std::fs;
-use std::io::{self, BufRead, Write};
+use std::io::{self, Write};
 
 pub struct FreeApplet;
 
@@ -13,6 +12,7 @@ impl Applet for FreeApplet {
         "Display amount of free and available memory"
     }
 
+    #[cfg(unix)]
     fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let mut human_readable = false;
 
@@ -81,6 +81,29 @@ impl Applet for FreeApplet {
         Ok(0)
     }
 
+    #[cfg(windows)]
+    fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+        writeln!(out, "{:<8} {:>12} {:>12} {:>12}", "", "total", "used", "free")?;
+
+        let (total, avail) = get_windows_memory()?;
+        let used = total.saturating_sub(avail);
+        writeln!(out, "{:<8} {:>12} {:>12} {:>12}",
+            "Mem:",
+            human_size_kb(total / 1024),
+            human_size_kb(used / 1024),
+            human_size_kb(avail / 1024))?;
+
+        Ok(0)
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        eprintln!("free: not supported on this platform");
+        Ok(1)
+    }
+
     fn help(&self) {
         println!("Usage: free [OPTIONS]");
         println!();
@@ -91,6 +114,7 @@ impl Applet for FreeApplet {
     }
 }
 
+#[cfg(unix)]
 struct MemInfo {
     mem_total: u64,
     mem_free: u64,
@@ -102,7 +126,10 @@ struct MemInfo {
     swap_free: u64,
 }
 
+#[cfg(unix)]
 fn parse_meminfo() -> Result<MemInfo, io::Error> {
+    use std::fs;
+    use std::io::BufRead;
     let file = fs::File::open("/proc/meminfo")?;
     let reader = io::BufReader::new(file);
 
@@ -147,6 +174,25 @@ fn parse_meminfo() -> Result<MemInfo, io::Error> {
         swap_total,
         swap_free,
     })
+}
+
+#[cfg(windows)]
+fn get_windows_memory() -> Result<(u64, u64), io::Error> {
+    let output = std::process::Command::new("wmic")
+        .args(&["OS", "get", "TotalVisibleMemorySize,FreePhysicalMemory", "/Value"])
+        .output()?;
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    let mut total: u64 = 0;
+    let mut free: u64 = 0;
+    for line in stdout_str.lines() {
+        if let Some(val) = line.strip_prefix("TotalVisibleMemorySize=") {
+            total = val.trim().parse().unwrap_or(0) * 1024;
+        }
+        if let Some(val) = line.strip_prefix("FreePhysicalMemory=") {
+            free = val.trim().parse().unwrap_or(0) * 1024;
+        }
+    }
+    Ok((total, free))
 }
 
 fn human_size_kb(kb: u64) -> String {

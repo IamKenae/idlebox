@@ -78,10 +78,8 @@ impl Applet for KillApplet {
         let mut failed = false;
 
         for pid in &pids {
-            let ret = unsafe { raw_kill(*pid, sig) };
-            if ret != 0 {
-                let err = io::Error::last_os_error();
-                eprintln!("kill: ({}) - {}", pid, err);
+            if let Err(e) = send_signal(*pid, sig) {
+                eprintln!("kill: ({}) - {}", pid, e);
                 failed = true;
             }
         }
@@ -118,6 +116,7 @@ fn parse_signal(s: &str) -> Result<i32, Box<dyn std::error::Error>> {
     signal_number_from_name(&name)
 }
 
+#[cfg(unix)]
 fn signal_number_from_name(name: &str) -> Result<i32, Box<dyn std::error::Error>> {
     match name {
         "SIGHUP" => Ok(1),
@@ -155,6 +154,26 @@ fn signal_number_from_name(name: &str) -> Result<i32, Box<dyn std::error::Error>
     }
 }
 
+#[cfg(windows)]
+fn signal_number_from_name(name: &str) -> Result<i32, Box<dyn std::error::Error>> {
+    match name {
+        "SIGINT" => Ok(2),
+        "SIGILL" => Ok(4),
+        "SIGFPE" => Ok(8),
+        "SIGSEGV" => Ok(11),
+        "SIGTERM" => Ok(15),
+        "SIGBREAK" => Ok(21),
+        "SIGABRT" => Ok(22),
+        _ => Err(format!("kill: unknown signal: {}", name).into()),
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn signal_number_from_name(name: &str) -> Result<i32, Box<dyn std::error::Error>> {
+    Err(format!("kill: unknown signal: {}", name).into())
+}
+
+#[cfg(unix)]
 fn signal_name(number: i32) -> &'static str {
     match number {
         1 => "HUP",
@@ -192,6 +211,27 @@ fn signal_name(number: i32) -> &'static str {
     }
 }
 
+#[cfg(windows)]
+fn signal_name(number: i32) -> &'static str {
+    match number {
+        2 => "INT",
+        4 => "ILL",
+        8 => "FPE",
+        11 => "SEGV",
+        15 => "TERM",
+        21 => "BREAK",
+        22 => "ABRT",
+        _ => "UNKNOWN",
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn signal_name(number: i32) -> &'static str {
+    let _ = number;
+    "UNKNOWN"
+}
+
+#[cfg(unix)]
 fn print_signal_list(out: &mut impl Write) -> Result<(), io::Error> {
     for i in 1..=31 {
         writeln!(out, "{:>2}) SIG{}", i, signal_name(i))?;
@@ -199,6 +239,47 @@ fn print_signal_list(out: &mut impl Write) -> Result<(), io::Error> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn print_signal_list(out: &mut impl Write) -> Result<(), io::Error> {
+    for &i in &[2, 4, 8, 11, 15, 21, 22] {
+        writeln!(out, "{:>2}) SIG{}", i, signal_name(i))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn print_signal_list(_out: &mut impl Write) -> Result<(), io::Error> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn send_signal(pid: i32, sig: i32) -> Result<(), io::Error> {
+    let ret = unsafe { raw_kill(pid, sig) };
+    if ret != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn send_signal(pid: i32, _sig: i32) -> Result<(), io::Error> {
+    use std::process::Command;
+    let output = Command::new("taskkill")
+        .args(&["/PID", &pid.to_string(), "/F"])
+        .output()?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(io::Error::new(io::ErrorKind::Other, "taskkill failed"))
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn send_signal(_pid: i32, _sig: i32) -> Result<(), io::Error> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "signals not supported"))
+}
+
+#[cfg(unix)]
 extern "C" {
     #[link_name = "kill"]
     fn raw_kill(pid: i32, sig: i32) -> i32;

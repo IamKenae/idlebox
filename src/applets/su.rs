@@ -1,4 +1,6 @@
 use crate::core::Applet;
+
+#[cfg(unix)]
 use std::ffi::CString;
 
 pub struct SuApplet;
@@ -12,6 +14,7 @@ impl Applet for SuApplet {
         "Run a shell with substitute user and group IDs"
     }
 
+    #[cfg(unix)]
     fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let mut login_shell = false;
         let mut command: Option<&str> = None;
@@ -210,6 +213,12 @@ impl Applet for SuApplet {
         Ok(1)
     }
 
+    #[cfg(not(unix))]
+    fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        eprintln!("su: not supported on this platform");
+        Ok(1)
+    }
+
     fn help(&self) {
         println!("Usage: su [options] [USER]");
         println!();
@@ -222,9 +231,14 @@ impl Applet for SuApplet {
         println!();
         println!("If no USER is given, default is root.");
         println!("Note: only root can switch to another user.");
+        #[cfg(not(unix))]
+        println!();
+        #[cfg(not(unix))]
+        println!("Note: this applet is not supported on this platform.");
     }
 }
 
+#[cfg(unix)]
 struct PasswdInfo {
     uid: u32,
     gid: u32,
@@ -232,6 +246,7 @@ struct PasswdInfo {
     shell: String,
 }
 
+#[cfg(unix)]
 #[repr(C)]
 struct Passwd {
     pw_name: *const i8,
@@ -243,6 +258,7 @@ struct Passwd {
     pw_shell: *const i8,
 }
 
+#[cfg(unix)]
 fn c_char_to_string(ptr: *const i8) -> String {
     if ptr.is_null() {
         return String::new();
@@ -257,6 +273,7 @@ fn c_char_to_string(ptr: *const i8) -> String {
     }
 }
 
+#[cfg(unix)]
 fn get_passwd_by_name(name: &str) -> Option<PasswdInfo> {
     let c_name = CString::new(name).ok()?;
     let ptr = unsafe { raw_getpwnam(c_name.as_ptr()) };
@@ -273,6 +290,7 @@ fn get_passwd_by_name(name: &str) -> Option<PasswdInfo> {
     }
 }
 
+#[cfg(unix)]
 extern "C" {
     #[link_name = "getuid"]
     fn raw_getuid() -> u32;
@@ -302,10 +320,12 @@ extern "C" {
     fn raw__exit(status: i32) -> !;
 }
 
+#[cfg(unix)]
 unsafe fn raw_wifexited(status: i32) -> bool {
     (status & 0x7f) == 0
 }
 
+#[cfg(unix)]
 unsafe fn raw_wexitstatus(status: i32) -> i32 {
     (status >> 8) & 0xff
 }

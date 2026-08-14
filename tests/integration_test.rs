@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::Write;
+#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::process::Command;
 
@@ -1069,6 +1070,7 @@ fn test_grep_no_match_returns_1() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_chmod_octal_mode() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_chmod");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -1091,6 +1093,7 @@ fn test_chmod_octal_mode() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_chmod_multiple_files() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_chmod_multi");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -1114,6 +1117,7 @@ fn test_chmod_multiple_files() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_chmod_recursive() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_chmod_r");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -1142,6 +1146,7 @@ fn test_chmod_recursive() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_df_human_readable() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "df", "-h", "/"])
@@ -1160,6 +1165,7 @@ fn test_df_human_readable() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_df_specific_path() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "df", "-h", "/tmp"])
@@ -1173,6 +1179,7 @@ fn test_df_specific_path() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_df_no_args() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "df"])
@@ -1255,6 +1262,7 @@ fn test_du_max_depth() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_ps_basic() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "ps", "-e"])
@@ -1271,6 +1279,7 @@ fn test_ps_basic() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_ps_shows_own_pid() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "ps", "-e"])
@@ -1284,6 +1293,7 @@ fn test_ps_shows_own_pid() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_ps_custom_columns() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "ps", "-e", "-o", "pid,cmd"])
@@ -1298,6 +1308,7 @@ fn test_ps_custom_columns() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_kill_list_signals() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "kill", "-l"])
@@ -1314,6 +1325,7 @@ fn test_kill_list_signals() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_kill_send_signal_to_child() {
     let mut child = Command::new("sleep")
         .arg("60")
@@ -1334,6 +1346,7 @@ fn test_kill_send_signal_to_child() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_kill_by_number() {
     let mut child = Command::new("sleep")
         .arg("60")
@@ -1354,6 +1367,7 @@ fn test_kill_by_number() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_free_basic() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "free"])
@@ -1370,6 +1384,7 @@ fn test_free_basic() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_free_human_readable() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "free", "-h"])
@@ -1384,6 +1399,7 @@ fn test_free_human_readable() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_uptime_basic() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "uptime"])
@@ -1398,6 +1414,7 @@ fn test_uptime_basic() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_uptime_load_average_format() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "uptime"])
@@ -1439,6 +1456,7 @@ fn test_ln_symbolic_link() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_ln_hard_link() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_ln_hard");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -1517,6 +1535,7 @@ fn test_ln_multiple_to_dir() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_readlink_symbolic() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_readlink");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -1540,6 +1559,7 @@ fn test_readlink_symbolic() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_readlink_canonicalize() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_readlink_f");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -1564,6 +1584,7 @@ fn test_readlink_canonicalize() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_readlink_no_newline() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_readlink_n");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -1587,6 +1608,7 @@ fn test_readlink_no_newline() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_uname_sysname() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "uname", "-s"])
@@ -1599,6 +1621,7 @@ fn test_uname_sysname() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_uname_all() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "uname", "-a"])
@@ -1613,6 +1636,7 @@ fn test_uname_all() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_uname_default_is_sysname() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "uname"])
@@ -1622,6 +1646,46 @@ fn test_uname_default_is_sysname() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     assert_eq!(stdout, "Linux");
+}
+
+#[test]
+#[cfg(not(unix))]
+fn test_uname_sysname() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "uname", "-s"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert!(!stdout.is_empty());
+}
+
+#[test]
+#[cfg(not(unix))]
+fn test_uname_all() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "uname", "-a"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parts: Vec<&str> = stdout.trim().split_whitespace().collect();
+    assert!(parts.len() >= 1, "uname -a should output at least 1 field");
+}
+
+#[test]
+#[cfg(not(unix))]
+fn test_uname_default_is_sysname() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "uname"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert!(!stdout.is_empty());
 }
 
 #[test]
@@ -1759,6 +1823,7 @@ fn test_test_file_size() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_test_symlink() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_test_symlink");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -2022,6 +2087,7 @@ fn test_find_type_file() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_find_symlink() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_find_symlink");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -2452,6 +2518,7 @@ fn test_whoami_nonempty() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_whoami_matches_id_un() {
     let whoami_output = Command::new("cargo")
         .args(["run", "--quiet", "--", "whoami"])
@@ -2471,6 +2538,7 @@ fn test_whoami_matches_id_un() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_id_default_format() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "id"])
@@ -2485,6 +2553,7 @@ fn test_id_default_format() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_id_u_flag() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "id", "-u"])
@@ -2497,6 +2566,7 @@ fn test_id_u_flag() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_id_u_name_flag() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "id", "-u", "-n"])
@@ -2510,6 +2580,7 @@ fn test_id_u_name_flag() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_id_g_flag() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "id", "-g"])
@@ -2522,6 +2593,7 @@ fn test_id_g_flag() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_id_g_name_flag() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "id", "-g", "-n"])
@@ -2534,6 +2606,7 @@ fn test_id_g_name_flag() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_id_g_supplementary_flag() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "id", "-G"])
@@ -2551,6 +2624,7 @@ fn test_id_g_supplementary_flag() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_id_nonexistent_user() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "id", "nonexistent_user_xyz_12345"])
@@ -2563,6 +2637,7 @@ fn test_id_nonexistent_user() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_id_combined_flags() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "id", "-un"])
@@ -2576,6 +2651,7 @@ fn test_id_combined_flags() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_chown_missing_operand() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "chown"])
@@ -2588,6 +2664,7 @@ fn test_chown_missing_operand() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_chown_invalid_user() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_chown_inv");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -2609,6 +2686,7 @@ fn test_chown_invalid_user() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_chown_no_file() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "chown", "root", "/tmp/idlebox_nonexistent_file_xyz"])
@@ -2621,6 +2699,7 @@ fn test_chown_no_file() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_chgrp_missing_operand() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "chgrp"])
@@ -2633,6 +2712,7 @@ fn test_chgrp_missing_operand() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_chgrp_invalid_group() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_chgrp_inv");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -2654,6 +2734,7 @@ fn test_chgrp_invalid_group() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_chgrp_no_file() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "chgrp", "root", "/tmp/idlebox_nonexistent_file_xyz"])
@@ -2666,6 +2747,7 @@ fn test_chgrp_no_file() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_su_missing_command_argument() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "su", "-c"])
@@ -2678,6 +2760,7 @@ fn test_su_missing_command_argument() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_su_nonexistent_user() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "su", "nonexistent_user_xyz_12345"])
@@ -2693,6 +2776,7 @@ fn test_su_nonexistent_user() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_su_help() {
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "su", "--help"])

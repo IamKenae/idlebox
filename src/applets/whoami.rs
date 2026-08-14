@@ -12,6 +12,7 @@ impl Applet for WhoamiApplet {
         "Print effective user name"
     }
 
+    #[cfg(unix)]
     fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let uid = unsafe { raw_geteuid() };
         match get_username_by_uid(uid) {
@@ -28,6 +29,23 @@ impl Applet for WhoamiApplet {
         }
     }
 
+    #[cfg(windows)]
+    fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        let username = std::env::var("USERNAME")
+            .or_else(|_| std::env::var("USER"))
+            .unwrap_or_else(|_| "unknown".to_string());
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+        writeln!(out, "{}", username)?;
+        Ok(0)
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        eprintln!("whoami: not supported on this platform");
+        Ok(1)
+    }
+
     fn help(&self) {
         println!("Usage: {}", self.name());
         println!();
@@ -37,6 +55,7 @@ impl Applet for WhoamiApplet {
     }
 }
 
+#[cfg(unix)]
 fn get_username_by_uid(uid: u32) -> Option<String> {
     let ptr = unsafe { raw_getpwuid(uid) };
     if ptr.is_null() {
@@ -51,6 +70,7 @@ fn get_username_by_uid(uid: u32) -> Option<String> {
     }
 }
 
+#[cfg(unix)]
 fn c_char_to_string(ptr: *const i8) -> String {
     let mut len = 0;
     unsafe {
@@ -62,6 +82,7 @@ fn c_char_to_string(ptr: *const i8) -> String {
     }
 }
 
+#[cfg(unix)]
 #[repr(C)]
 struct Passwd {
     pw_name: *const i8,
@@ -73,6 +94,7 @@ struct Passwd {
     pw_shell: *const i8,
 }
 
+#[cfg(unix)]
 extern "C" {
     #[link_name = "geteuid"]
     fn raw_geteuid() -> u32;

@@ -1,6 +1,10 @@
 use crate::core::Applet;
+
+#[cfg(unix)]
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+#[cfg(unix)]
 use std::path::Path;
 
 pub struct ChmodApplet;
@@ -14,6 +18,7 @@ impl Applet for ChmodApplet {
         "Change file mode bits"
     }
 
+    #[cfg(unix)]
     fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let mut recursive = false;
         let mut mode_str: Option<&str> = None;
@@ -82,6 +87,12 @@ impl Applet for ChmodApplet {
         Ok(exit_code)
     }
 
+    #[cfg(not(unix))]
+    fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        eprintln!("chmod: not supported on this platform");
+        Ok(1)
+    }
+
     fn help(&self) {
         println!("Usage: chmod [OPTION]... MODE[,MODE]... FILE...");
         println!();
@@ -91,13 +102,19 @@ impl Applet for ChmodApplet {
         println!("  -R, --recursive   Change files and directories recursively");
         println!();
         println!("MODE is an octal number (e.g. 755, 0644).");
+        #[cfg(not(unix))]
+        println!();
+        #[cfg(not(unix))]
+        println!("Note: this applet is not supported on this platform.");
     }
 }
 
+#[cfg(unix)]
 fn parse_mode(s: &str) -> Result<u32, String> {
     u32::from_str_radix(s, 8).map_err(|_| format!("invalid mode: '{}'", s))
 }
 
+#[cfg(unix)]
 fn apply_chmod(path: &str, mode: u32, recursive: bool) -> Result<(), std::io::Error> {
     let p = Path::new(path);
     let perms = fs::Permissions::from_mode(mode);

@@ -31,9 +31,20 @@ BusyBox 承载了嵌入式 Linux 的半壁江山，但它的 C 代码库已走�
 - **零依赖** — 仅使用 Rust 标准库，不引入任何第三方 crate
 - **极致精简** — Release 构建约 360KB，适合嵌入式与容器场景
 - **POSIX 兼容** — 常见 Unix 工具的原生替代
+- **跨平台** — 支持 Linux、macOS 和 Windows
 - **模块化设计** — 通过 Applet 机制轻松扩展
 - **符号链接支持** — 通过符号链接直接调用各 Applet
 - **高颜值终端** — 内置 ANSI 彩色输出，让命令行赏心悦目
+
+---
+
+## 平台支持
+
+| 平台 | 状态 | 说明 |
+|------|------|------|
+| Linux | 完整支持 | 全部 36 个 Applet |
+| macOS | 完整支持 | 全部 36 个 Applet |
+| Windows | 部分支持 | 20+ 个 Applet 完整支持；Unix 专属 Applet（chmod, chown, chgrp, id, su）优雅降级 |
 
 ---
 

@@ -67,23 +67,15 @@ impl Applet for MvApplet {
 
             match fs::rename(src_path, &target) {
                 Ok(()) => {}
-                Err(e) if e.raw_os_error() == Some(18) => {
-                    // EXDEV — cross-device link
+                Err(e) if is_cross_device_error(&e) => {
                     if let Err(e2) = Self::move_cross_device(src_path, &target) {
                         eprintln!("mv: cannot move '{}' to '{}': {}", src, dest, e2);
                         had_error = true;
                     }
                 }
                 Err(e) => {
-                    if src_path.is_dir() && e.raw_os_error().is_none() {
-                        if let Err(e2) = Self::move_cross_device(src_path, &target) {
-                            eprintln!("mv: cannot move '{}' to '{}': {}", src, dest, e2);
-                            had_error = true;
-                        }
-                    } else {
-                        eprintln!("mv: cannot rename '{}' to '{}': {}", src, dest, e);
-                        had_error = true;
-                    }
+                    eprintln!("mv: cannot rename '{}' to '{}': {}", src, dest, e);
+                    had_error = true;
                 }
             }
         }
@@ -130,4 +122,24 @@ impl MvApplet {
 
         Ok(())
     }
+}
+
+#[cfg(unix)]
+fn is_cross_device_error(e: &io::Error) -> bool {
+    e.raw_os_error() == Some(libc::EXDEV)
+}
+
+#[cfg(unix)]
+mod libc {
+    pub const EXDEV: i32 = 18;
+}
+
+#[cfg(windows)]
+fn is_cross_device_error(e: &io::Error) -> bool {
+    e.raw_os_error() == Some(17)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn is_cross_device_error(_e: &io::Error) -> bool {
+    false
 }

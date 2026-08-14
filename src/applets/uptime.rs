@@ -1,5 +1,4 @@
 use crate::core::Applet;
-use std::fs;
 use std::io::{self, Write};
 
 pub struct UptimeApplet;
@@ -13,6 +12,7 @@ impl Applet for UptimeApplet {
         "Tell how long the system has been running"
     }
 
+    #[cfg(unix)]
     fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let stdout = io::stdout();
         let mut out = stdout.lock();
@@ -39,6 +39,36 @@ impl Applet for UptimeApplet {
         Ok(0)
     }
 
+    #[cfg(windows)]
+    fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+
+        let uptime_secs = get_windows_uptime()?;
+        let current_time = current_time_string();
+
+        let days = uptime_secs / 86400;
+        let remaining = uptime_secs % 86400;
+        let hours = remaining / 3600;
+        let minutes = (remaining % 3600) / 60;
+
+        let uptime_str = if days > 0 {
+            format!("up {} day{}, {:02}:{:02}", days, if days == 1 { "" } else { "s" }, hours, minutes)
+        } else {
+            format!("up {:02}:{:02}", hours, minutes)
+        };
+
+        writeln!(out, " {}  {},  1 user", current_time, uptime_str)?;
+
+        Ok(0)
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        eprintln!("uptime: not supported on this platform");
+        Ok(1)
+    }
+
     fn help(&self) {
         println!("Usage: uptime");
         println!();
@@ -46,7 +76,9 @@ impl Applet for UptimeApplet {
     }
 }
 
+#[cfg(unix)]
 fn parse_uptime() -> Result<u64, io::Error> {
+    use std::fs;
     let content = fs::read_to_string("/proc/uptime")?;
     let parts: Vec<&str> = content.split_whitespace().collect();
     if parts.is_empty() {
@@ -57,7 +89,9 @@ fn parse_uptime() -> Result<u64, io::Error> {
     Ok(secs as u64)
 }
 
+#[cfg(unix)]
 fn parse_loadavg() -> Result<(f64, f64, f64, u32, u32), io::Error> {
+    use std::fs;
     let content = fs::read_to_string("/proc/loadavg")?;
     let parts: Vec<&str> = content.split_whitespace().collect();
     if parts.len() < 4 {
@@ -77,6 +111,7 @@ fn parse_loadavg() -> Result<(f64, f64, f64, u32, u32), io::Error> {
     Ok((load1, load5, load15, running, total))
 }
 
+#[cfg(unix)]
 fn current_time_string() -> String {
     let mut tv: libc_timeval = unsafe { std::mem::zeroed() };
     unsafe { raw_gettimeofday(&mut tv, std::ptr::null_mut()) };
@@ -91,6 +126,55 @@ fn current_time_string() -> String {
     let (year, month, day) = unix_days_to_ymd(days_since_epoch);
 
     format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", year, month, day, hours, minutes, seconds)
+}
+
+#[cfg(windows)]
+fn current_time_string() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    let total_secs = now.as_secs();
+    let secs_of_day = total_secs % 86400;
+    let hours = secs_of_day / 3600;
+    let minutes = (secs_of_day % 3600) / 60;
+    let seconds = secs_of_day % 60;
+
+    let days_since_epoch = total_secs / 86400;
+    let (year, month, day) = unix_days_to_ymd(days_since_epoch);
+
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", year, month, day, hours, minutes, seconds)
+}
+
+#[cfg(windows)]
+fn get_windows_uptime() -> Result<u64, io::Error> {
+    let output = std::process::Command::new("wmic")
+        .args(&["os", "get", "LastBootUpTime", "/Value"])
+        .output()?;
+    let stdout_str = String::from_utf8_lossy(&output.stdout);
+    for line in stdout_str.lines() {
+        if let Some(val) = line.strip_prefix("LastBootUpTime=") {
+            let val = val.trim();
+            if val.len() >= 14 {
+                let year: u64 = val[0..4].parse().unwrap_or(2024);
+                let month: u64 = val[4..6].parse().unwrap_or(1);
+                let day: u64 = val[6..8].parse().unwrap_or(1);
+                let hour: u64 = val[8..10].parse().unwrap_or(0);
+                let min: u64 = val[10..12].parse().unwrap_or(0);
+                let sec: u64 = val[12..14].parse().unwrap_or(0);
+
+                let boot_days = ymd_to_days(year, month, day);
+                let boot_secs = boot_days * 86400 + hour * 3600 + min * 60 + sec;
+
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
+
+                return Ok(now.saturating_sub(boot_secs));
+            }
+        }
+    }
+    Ok(0)
 }
 
 fn unix_days_to_ymd(mut days: u64) -> (u64, u64, u64) {
@@ -119,16 +203,36 @@ fn unix_days_to_ymd(mut days: u64) -> (u64, u64, u64) {
     (year, month, days + 1)
 }
 
+#[cfg(windows)]
+fn ymd_to_days(year: u64, month: u64, day: u64) -> u64 {
+    let mut days: u64 = 0;
+    for y in 1970..year {
+        days += if is_leap(y) { 366 } else { 365 };
+    }
+    let days_in_months: [u64; 12] = if is_leap(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+    for m in 0..(month as usize - 1).min(12) {
+        days += days_in_months[m];
+    }
+    days += day - 1;
+    days
+}
+
 fn is_leap(year: u64) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
+#[cfg(unix)]
 #[repr(C)]
 struct libc_timeval {
     tv_sec: i64,
     tv_usec: i64,
 }
 
+#[cfg(unix)]
 extern "C" {
     #[link_name = "gettimeofday"]
     fn raw_gettimeofday(tv: *mut libc_timeval, tz: *mut u8) -> i32;

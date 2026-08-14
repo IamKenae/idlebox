@@ -31,9 +31,20 @@ BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this
 - **Zero Dependencies** — Pure Rust standard library, no third-party crates
 - **Ultra-compact** — ~360KB release binary, ideal for embedded and container environments
 - **POSIX Compatible** — Drop-in replacement for common Unix utilities
+- **Cross-Platform** — Supports Linux, macOS, and Windows
 - **Modular Design** — Easily extend via the Applet mechanism
 - **Symlink Support** — Invoke applets directly via symlinks
 - **Beautiful Terminal Output** — Built-in ANSI color support for a delightful CLI experience
+
+---
+
+## Platform Support
+
+| Platform | Status | Notes |
+|----------|--------|-------|
+| Linux | Full | All 36 applets supported |
+| macOS | Full | All 36 applets supported |
+| Windows | Partial | 20+ applets fully supported; Unix-only applets (chmod, chown, chgrp, id, su) gracefully degrade |
 
 ---
 

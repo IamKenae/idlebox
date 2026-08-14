@@ -1,6 +1,5 @@
 use crate::core::Applet;
 use std::fs;
-use std::os::unix::fs::symlink;
 use std::path::Path;
 
 pub struct LnApplet;
@@ -73,7 +72,7 @@ impl Applet for LnApplet {
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| src.to_string());
-                format!("{}/{}", target.trim_end_matches('/'), src_name)
+                Path::new(target).join(&src_name).to_string_lossy().to_string()
             } else {
                 target.to_string()
             };
@@ -92,7 +91,7 @@ impl Applet for LnApplet {
             }
 
             let result = if symbolic {
-                symlink(src, link)
+                create_symlink(src, link)
             } else {
                 fs::hard_link(src, link)
             };
@@ -117,4 +116,24 @@ impl Applet for LnApplet {
         println!("  -s, --symbolic   Create a symbolic link");
         println!("  -f, --force      Remove existing destination files");
     }
+}
+
+#[cfg(unix)]
+fn create_symlink(src: &str, dst: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(src, dst)
+}
+
+#[cfg(windows)]
+fn create_symlink(src: &str, dst: &Path) -> std::io::Result<()> {
+    let src_path = Path::new(src);
+    if src_path.is_dir() {
+        std::os::windows::fs::symlink_dir(src, dst)
+    } else {
+        std::os::windows::fs::symlink_file(src, dst)
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn create_symlink(_src: &str, _dst: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "symlinks not supported"))
 }
