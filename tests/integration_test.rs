@@ -52,15 +52,19 @@ fn test_list_applets() {
     assert!(stdout.contains("df"));
     assert!(stdout.contains("du"));
     assert!(stdout.contains("echo"));
+    assert!(stdout.contains("free"));
     assert!(stdout.contains("grep"));
     assert!(stdout.contains("head"));
+    assert!(stdout.contains("kill"));
     assert!(stdout.contains("ls"));
     assert!(stdout.contains("mkdir"));
     assert!(stdout.contains("mv"));
+    assert!(stdout.contains("ps"));
     assert!(stdout.contains("relax"));
     assert!(stdout.contains("rm"));
     assert!(stdout.contains("tail"));
     assert!(stdout.contains("touch"));
+    assert!(stdout.contains("uptime"));
 }
 
 #[test]
@@ -240,7 +244,7 @@ fn test_install_creates_symlinks() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Created symlink"));
 
-    for applet in &["cat", "chmod", "cp", "df", "du", "echo", "grep", "head", "ls", "mkdir", "mv", "relax", "rm", "tail", "touch"] {
+    for applet in &["cat", "chmod", "cp", "df", "du", "echo", "free", "grep", "head", "kill", "ls", "mkdir", "mv", "ps", "relax", "rm", "tail", "touch", "uptime"] {
         let link = tmp_dir.join(applet);
         assert!(link.exists(), "symlink for {} should exist", applet);
         let meta = fs::symlink_metadata(&link).unwrap();
@@ -1232,4 +1236,166 @@ fn test_du_max_depth() {
     assert!(last_line.contains(tmp_dir.to_str().unwrap()), "last line should be the total for root dir");
 
     let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_ps_basic() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "ps", "-e"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("PID"));
+    assert!(stdout.contains("TTY"));
+    assert!(stdout.contains("STAT"));
+    assert!(stdout.contains("TIME"));
+    assert!(stdout.contains("COMMAND"));
+}
+
+#[test]
+fn test_ps_shows_own_pid() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "ps", "-e"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let my_pid = std::process::id();
+    assert!(stdout.contains(&my_pid.to_string()));
+}
+
+#[test]
+fn test_ps_custom_columns() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "ps", "-e", "-o", "pid,cmd"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("PID"));
+    assert!(stdout.contains("COMMAND"));
+    assert!(!stdout.contains("TTY"));
+}
+
+#[test]
+fn test_kill_list_signals() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "kill", "-l"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("SIG"));
+    assert!(stdout.contains("HUP"));
+    assert!(stdout.contains("KILL"));
+    assert!(stdout.contains("TERM"));
+    assert!(stdout.contains("INT"));
+}
+
+#[test]
+fn test_kill_send_signal_to_child() {
+    let mut child = Command::new("sleep")
+        .arg("60")
+        .spawn()
+        .expect("failed to spawn child");
+
+    let pid = child.id() as i32;
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "kill", "-TERM", &pid.to_string()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+
+    let status = child.wait().expect("failed to wait on child");
+    assert!(!status.success());
+}
+
+#[test]
+fn test_kill_by_number() {
+    let mut child = Command::new("sleep")
+        .arg("60")
+        .spawn()
+        .expect("failed to spawn child");
+
+    let pid = child.id() as i32;
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "kill", "-9", &pid.to_string()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+
+    let status = child.wait().expect("failed to wait on child");
+    assert!(!status.success());
+}
+
+#[test]
+fn test_free_basic() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "free"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("total"));
+    assert!(stdout.contains("used"));
+    assert!(stdout.contains("free"));
+    assert!(stdout.contains("Mem:"));
+    assert!(stdout.contains("Swap:"));
+}
+
+#[test]
+fn test_free_human_readable() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "free", "-h"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Mem:"));
+    assert!(stdout.contains("Swap:"));
+    assert!(stdout.contains("K") || stdout.contains("M") || stdout.contains("G"));
+}
+
+#[test]
+fn test_uptime_basic() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "uptime"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("up"));
+    assert!(stdout.contains("load average:"));
+    assert!(stdout.contains("user"));
+}
+
+#[test]
+fn test_uptime_load_average_format() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "uptime"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parts: Vec<&str> = stdout.split("load average:").collect();
+    assert_eq!(parts.len(), 2);
+    let loads: Vec<&str> = parts[1].trim().split(',').collect();
+    assert_eq!(loads.len(), 3);
+    for load in &loads {
+        let trimmed = load.trim();
+        assert!(trimmed.contains('.'), "load value should be decimal: {}", trimmed);
+    }
 }

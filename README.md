@@ -55,6 +55,10 @@ BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this
 | `chmod` | Change file mode bits | Octal numeric mode, `-R` recursive directory traversal |
 | `df` | Report file system disk space usage | Parses `/proc/mounts` + `statvfs` syscall, `-h` human-readable, per-path query |
 | `du` | Estimate file space usage | `-h` human-readable, `-s` summarize, `-d` max-depth control |
+| `ps` | Report a snapshot of current processes | Parses `/proc/[pid]/stat` + `cmdline`, `-e`/`-A` all processes, `-o` custom columns |
+| `kill` | Send signals to processes | POSIX signal FFI, supports signal names (`-TERM`) and numbers (`-9`), `-l` list signals |
+| `free` | Display memory usage | Parses `/proc/meminfo`, `-h` human-readable, shows Mem + Swap |
+| `uptime` | Tell how long the system has been running | Parses `/proc/uptime` + `/proc/loadavg`, shows uptime and 1/5/15 min load average |
 | `relax` | IdleBox special: take a break and relax | A unique relaxation experience, embodying the "Idle" spirit |
 | `--install` | Automated applet deployment via symlinks | Creates symlinks for all applets in a target directory; defaults to `/usr/local/bin` |
 

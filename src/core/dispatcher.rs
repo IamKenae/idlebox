@@ -1,7 +1,8 @@
 use crate::core::Applet;
 use crate::applets::{
-    CatApplet, ChmodApplet, CpApplet, DfApplet, DuApplet, EchoApplet, GrepApplet, HeadApplet,
-    LsApplet, MkdirApplet, MvApplet, RelaxApplet, RmApplet, TailApplet, TouchApplet,
+    CatApplet, ChmodApplet, CpApplet, DfApplet, DuApplet, EchoApplet, FreeApplet, GrepApplet,
+    HeadApplet, KillApplet, LsApplet, MkdirApplet, MvApplet, PsApplet, RelaxApplet, RmApplet,
+    TailApplet, TouchApplet, UptimeApplet,
 };
 
 pub struct Dispatcher;
@@ -70,6 +71,15 @@ impl Dispatcher {
                     applet.run(args)
                 }
             }
+            "free" => {
+                let applet = FreeApplet;
+                if has_help {
+                    applet.help();
+                    Ok(0)
+                } else {
+                    applet.run(args)
+                }
+            }
             "grep" => {
                 let applet = GrepApplet;
                 if has_help || has_h_short {
@@ -82,6 +92,15 @@ impl Dispatcher {
             "head" => {
                 let applet = HeadApplet;
                 if has_help || has_h_short {
+                    applet.help();
+                    Ok(0)
+                } else {
+                    applet.run(args)
+                }
+            }
+            "kill" => {
+                let applet = KillApplet;
+                if has_help {
                     applet.help();
                     Ok(0)
                 } else {
@@ -109,6 +128,15 @@ impl Dispatcher {
             "mv" => {
                 let applet = MvApplet;
                 if has_help || has_h_short {
+                    applet.help();
+                    Ok(0)
+                } else {
+                    applet.run(args)
+                }
+            }
+            "ps" => {
+                let applet = PsApplet;
+                if has_help {
                     applet.help();
                     Ok(0)
                 } else {
@@ -151,6 +179,15 @@ impl Dispatcher {
                     applet.run(args)
                 }
             }
+            "uptime" => {
+                let applet = UptimeApplet;
+                if has_help {
+                    applet.help();
+                    Ok(0)
+                } else {
+                    applet.run(args)
+                }
+            }
             _ => {
                 eprintln!("idlebox: applet not found");
                 Err("applet not found".into())
@@ -159,14 +196,15 @@ impl Dispatcher {
     }
     
     pub fn applet_names(&self) -> Vec<&'static str> {
-        vec!["cat", "chmod", "cp", "df", "du", "echo", "grep", "head", "ls", "mkdir", "mv", "relax", "rm", "tail", "touch"]
+        vec!["cat", "chmod", "cp", "df", "du", "echo", "free", "grep", "head", "kill", "ls", "mkdir", "mv", "ps", "relax", "rm", "tail", "touch", "uptime"]
     }
 
     pub fn list_applets(&self) {
         let applets: Vec<&dyn Applet> = vec![
             &CatApplet, &ChmodApplet, &CpApplet, &DfApplet, &DuApplet, &EchoApplet,
-            &GrepApplet, &HeadApplet, &LsApplet, &MkdirApplet, &MvApplet, &RelaxApplet,
-            &RmApplet, &TailApplet, &TouchApplet,
+            &FreeApplet, &GrepApplet, &HeadApplet, &KillApplet, &LsApplet, &MkdirApplet,
+            &MvApplet, &PsApplet, &RelaxApplet, &RmApplet, &TailApplet, &TouchApplet,
+            &UptimeApplet,
         ];
         for applet in applets {
             println!("{:<12} {}", applet.name(), applet.description());
