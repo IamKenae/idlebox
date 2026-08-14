@@ -65,6 +65,11 @@ BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this
 | `test` / `[` | Evaluate conditional expressions | POSIX-compatible `test` and `[` forms, file/string/numeric tests, logical operators |
 | `expr` | Evaluate expressions and print result | Arithmetic, comparison, logical, string ops; recursive descent parser |
 | `find` | Search for files in a directory hierarchy | Glob `-name`, `-type`, `-maxdepth`, `-empty`; pure Rust traversal |
+| `wc` | Print newline, word, and byte counts | `-l`/`-w`/`-c`/`-m`, multi-file with `total`, stdin pipe |
+| `sort` | Sort lines of text files | `-r` reverse, `-n` numeric, `-u` unique, multi-file merge |
+| `uniq` | Report or omit repeated lines | `-c` count, `-d` repeated, `-u` unique, `-i` ignore-case |
+| `cut` | Remove sections from each line | `-d` delimiter, `-f` fields, `-c` characters, range support |
+| `tr` | Translate or delete characters | SET1/SET2 translation, `-d` delete, `-s` squeeze, range expansion |
 | `relax` | IdleBox special: take a break and relax | A unique relaxation experience, embodying the "Idle" spirit |
 | `--install` | Automated applet deployment via symlinks | Creates symlinks for all applets in a target directory; defaults to `/usr/local/bin` |
 

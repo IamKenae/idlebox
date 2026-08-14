@@ -1,0 +1,158 @@
+use crate::core::Applet;
+use std::io::{self, Read, Write};
+
+pub struct TrApplet;
+
+impl Applet for TrApplet {
+    fn name(&self) -> &'static str {
+        "tr"
+    }
+
+    fn description(&self) -> &'static str {
+        "Translate or delete characters"
+    }
+
+    fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
+        let mut delete = false;
+        let mut squeeze = false;
+        let mut positional: Vec<&str> = Vec::new();
+
+        let mut i = 0;
+        while i < args.len() {
+            let arg = args[i].as_str();
+            match arg {
+                "-h" | "--help" => {
+                    self.help();
+                    return Ok(0);
+                }
+                "-d" | "--delete" => delete = true,
+                "-s" | "--squeeze-repeats" => squeeze = true,
+                "--" => {
+                    i += 1;
+                    positional.extend(args[i..].iter().map(|s| s.as_str()));
+                    break;
+                }
+                _ if arg.starts_with('-') && arg.len() > 1 && !arg.starts_with("--") => {
+                    let mut chars = arg[1..].chars().peekable();
+                    while let Some(ch) = chars.next() {
+                        match ch {
+                            'd' => delete = true,
+                            's' => squeeze = true,
+                            _ => return Err(format!("tr: invalid option -- '{}'", ch).into()),
+                        }
+                    }
+                }
+                _ => positional.push(arg),
+            }
+            i += 1;
+        }
+
+        if positional.is_empty() {
+            eprintln!("tr: missing operand");
+            return Ok(1);
+        }
+
+        let set1 = Self::expand_set(positional[0]);
+
+        let set2 = if !delete && positional.len() > 1 {
+            Some(Self::expand_set(positional[1]))
+        } else {
+            None
+        };
+
+        if !delete && set2.is_none() && !squeeze {
+            eprintln!("tr: missing operand after '{}'", positional[0]);
+            return Ok(1);
+        }
+
+        let stdin = io::stdin();
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+
+        let mut input = String::new();
+        stdin.lock().read_to_string(&mut input)?;
+
+        let mut result = String::new();
+        let mut last_char: Option<char> = None;
+
+        for ch in input.chars() {
+            if delete {
+                if set1.contains(&ch) {
+                    if squeeze {
+                        continue;
+                    }
+                    continue;
+                }
+                if squeeze && last_char == Some(ch) {
+                    continue;
+                }
+                result.push(ch);
+                last_char = Some(ch);
+            } else if let Some(ref s2) = set2 {
+                if let Some(pos) = set1.iter().position(|&c| c == ch) {
+                    let translated = if pos < s2.len() { s2[pos] } else { *s2.last().unwrap() };
+                    if squeeze && last_char == Some(translated) {
+                        continue;
+                    }
+                    result.push(translated);
+                    last_char = Some(translated);
+                } else {
+                    if squeeze && last_char == Some(ch) {
+                        continue;
+                    }
+                    result.push(ch);
+                    last_char = Some(ch);
+                }
+            } else {
+                if squeeze && set1.contains(&ch) && last_char == Some(ch) {
+                    continue;
+                }
+                result.push(ch);
+                last_char = Some(ch);
+            }
+        }
+
+        write!(out, "{}", result)?;
+        Ok(0)
+    }
+
+    fn help(&self) {
+        println!("Usage: tr [OPTION]... SET1 [SET2]");
+        println!();
+        println!("{}", self.description());
+        println!();
+        println!("Options:");
+        println!("  -d, --delete          delete characters in SET1");
+        println!("  -s, --squeeze-repeats  replace each sequence of a repeated character");
+        println!();
+        println!("SETs are specified as strings of characters. Ranges like 'a-z' are expanded.");
+    }
+}
+
+impl TrApplet {
+    fn expand_set(spec: &str) -> Vec<char> {
+        let mut result = Vec::new();
+        let chars: Vec<char> = spec.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            if i + 2 < chars.len() && chars[i + 1] == '-' {
+                let start = chars[i];
+                let end = chars[i + 2];
+                if start <= end {
+                    for c in start..=end {
+                        result.push(c);
+                    }
+                } else {
+                    for c in (end..=start).rev() {
+                        result.push(c);
+                    }
+                }
+                i += 3;
+            } else {
+                result.push(chars[i]);
+                i += 1;
+            }
+        }
+        result
+    }
+}

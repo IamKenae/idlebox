@@ -49,6 +49,7 @@ fn test_list_applets() {
     assert!(stdout.contains("cat"));
     assert!(stdout.contains("chmod"));
     assert!(stdout.contains("cp"));
+    assert!(stdout.contains("cut"));
     assert!(stdout.contains("df"));
     assert!(stdout.contains("du"));
     assert!(stdout.contains("echo"));
@@ -66,11 +67,15 @@ fn test_list_applets() {
     assert!(stdout.contains("readlink"));
     assert!(stdout.contains("relax"));
     assert!(stdout.contains("rm"));
+    assert!(stdout.contains("sort"));
     assert!(stdout.contains("tail"));
     assert!(stdout.contains("test"));
     assert!(stdout.contains("touch"));
+    assert!(stdout.contains("tr"));
     assert!(stdout.contains("uname"));
+    assert!(stdout.contains("uniq"));
     assert!(stdout.contains("uptime"));
+    assert!(stdout.contains("wc"));
 }
 
 #[test]
@@ -250,7 +255,7 @@ fn test_install_creates_symlinks() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Created symlink"));
 
-    for applet in &["cat", "chmod", "cp", "df", "du", "echo", "expr", "find", "free", "grep", "head", "kill", "ln", "ls", "mkdir", "mv", "ps", "readlink", "relax", "rm", "tail", "test", "[", "touch", "uname", "uptime"] {
+    for applet in &["cat", "chmod", "cp", "cut", "df", "du", "echo", "expr", "find", "free", "grep", "head", "kill", "ln", "ls", "mkdir", "mv", "ps", "readlink", "relax", "rm", "sort", "tail", "test", "[", "touch", "tr", "uname", "uniq", "uptime", "wc"] {
         let link = tmp_dir.join(applet);
         assert!(link.exists(), "symlink for {} should exist", applet);
         let meta = fs::symlink_metadata(&link).unwrap();
@@ -2032,4 +2037,399 @@ fn test_find_symlink() {
     assert!(stdout.contains("link.txt"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_wc_lines() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_wc_l");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "line1\nline2\nline3\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "wc", "-l", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("3"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_wc_words() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_wc_w");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "hello world\nfoo bar baz\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "wc", "-w", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("5"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_wc_stdin() {
+    let mut child = Command::new("cargo")
+        .args(["run", "--quiet", "--", "wc", "-l"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn process");
+
+    {
+        let stdin = child.stdin.as_mut().expect("failed to get stdin");
+        stdin.write_all(b"line1\nline2\nline3\nline4\n").unwrap();
+    }
+
+    let output = child.wait_with_output().expect("failed to wait");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("4"));
+}
+
+#[test]
+fn test_wc_multiple_files() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_wc_multi");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let f1 = tmp_dir.join("a.txt");
+    let f2 = tmp_dir.join("b.txt");
+    fs::write(&f1, "one\ntwo\n").unwrap();
+    fs::write(&f2, "three\nfour\nfive\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "wc", "-l", f1.to_str().unwrap(), f2.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("total"));
+    assert!(stdout.contains("5"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_sort_basic() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_sort");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "cherry\napple\nbanana\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "sort", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines, vec!["apple", "banana", "cherry"]);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_sort_numeric_reverse() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_sort_nr");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "10\n2\n30\n1\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "sort", "-n", "-r", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines, vec!["30", "10", "2", "1"]);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_sort_unique() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_sort_u");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "banana\napple\nbanana\ncherry\napple\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "sort", "-u", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines, vec!["apple", "banana", "cherry"]);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_sort_stdin() {
+    let mut child = Command::new("cargo")
+        .args(["run", "--quiet", "--", "sort"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn process");
+
+    {
+        let stdin = child.stdin.as_mut().expect("failed to get stdin");
+        stdin.write_all(b"cherry\napple\nbanana\n").unwrap();
+    }
+
+    let output = child.wait_with_output().expect("failed to wait");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines, vec!["apple", "banana", "cherry"]);
+}
+
+#[test]
+fn test_uniq_count() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_uniq_c");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "a\na\nb\nb\nb\nc\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "uniq", "-c", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines.len(), 3);
+    assert!(lines[0].contains("2"));
+    assert!(lines[0].contains("a"));
+    assert!(lines[1].contains("3"));
+    assert!(lines[1].contains("b"));
+    assert!(lines[2].contains("1"));
+    assert!(lines[2].contains("c"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_uniq_repeated() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_uniq_d");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "a\na\nb\nc\nc\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "uniq", "-d", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines, vec!["a", "c"]);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_uniq_unique() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_uniq_u");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "a\na\nb\nc\nc\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "uniq", "-u", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines, vec!["b"]);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_uniq_ignore_case() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_uniq_i");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "Hello\nhello\nHELLO\nWorld\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "uniq", "-i", "-c", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines.len(), 2);
+    assert!(lines[0].contains("3"));
+    assert!(lines[1].contains("1"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_cut_fields_csv() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_cut_f");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.csv");
+    fs::write(&file, "name,age,city\nAlice,30,NYC\nBob,25,LA\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "cut", "-d", ",", "-f", "1,2", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines[0], "name,age");
+    assert_eq!(lines[1], "Alice,30");
+    assert_eq!(lines[2], "Bob,25");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_cut_characters() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_cut_c");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "Hello World\nFoo Bar\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "cut", "-c", "1-5", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines[0], "Hello");
+    assert_eq!(lines[1], "Foo B");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_cut_stdin() {
+    let mut child = Command::new("cargo")
+        .args(["run", "--quiet", "--", "cut", "-d", ":", "-f", "1"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn process");
+
+    {
+        let stdin = child.stdin.as_mut().expect("failed to get stdin");
+        stdin.write_all(b"user:x:1000\nroot:x:0\n").unwrap();
+    }
+
+    let output = child.wait_with_output().expect("failed to wait");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines[0], "user");
+    assert_eq!(lines[1], "root");
+}
+
+#[test]
+fn test_tr_translate() {
+    let mut child = Command::new("cargo")
+        .args(["run", "--quiet", "--", "tr", "a-z", "A-Z"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn process");
+
+    {
+        let stdin = child.stdin.as_mut().expect("failed to get stdin");
+        stdin.write_all(b"hello world\n").unwrap();
+    }
+
+    let output = child.wait_with_output().expect("failed to wait");
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "HELLO WORLD\n");
+}
+
+#[test]
+fn test_tr_delete() {
+    let mut child = Command::new("cargo")
+        .args(["run", "--quiet", "--", "tr", "-d", "0-9"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn process");
+
+    {
+        let stdin = child.stdin.as_mut().expect("failed to get stdin");
+        stdin.write_all(b"abc123def456\n").unwrap();
+    }
+
+    let output = child.wait_with_output().expect("failed to wait");
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "abcdef\n");
+}
+
+#[test]
+fn test_tr_squeeze() {
+    let mut child = Command::new("cargo")
+        .args(["run", "--quiet", "--", "tr", "-s", " "])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn process");
+
+    {
+        let stdin = child.stdin.as_mut().expect("failed to get stdin");
+        stdin.write_all(b"hello    world\n").unwrap();
+    }
+
+    let output = child.wait_with_output().expect("failed to wait");
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "hello world\n");
 }
