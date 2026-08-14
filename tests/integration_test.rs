@@ -47,7 +47,9 @@ fn test_list_applets() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("cat"));
+    assert!(stdout.contains("chgrp"));
     assert!(stdout.contains("chmod"));
+    assert!(stdout.contains("chown"));
     assert!(stdout.contains("cp"));
     assert!(stdout.contains("cut"));
     assert!(stdout.contains("df"));
@@ -58,6 +60,7 @@ fn test_list_applets() {
     assert!(stdout.contains("free"));
     assert!(stdout.contains("grep"));
     assert!(stdout.contains("head"));
+    assert!(stdout.contains("id"));
     assert!(stdout.contains("kill"));
     assert!(stdout.contains("ln"));
     assert!(stdout.contains("ls"));
@@ -68,6 +71,7 @@ fn test_list_applets() {
     assert!(stdout.contains("relax"));
     assert!(stdout.contains("rm"));
     assert!(stdout.contains("sort"));
+    assert!(stdout.contains("su"));
     assert!(stdout.contains("tail"));
     assert!(stdout.contains("test"));
     assert!(stdout.contains("touch"));
@@ -76,6 +80,7 @@ fn test_list_applets() {
     assert!(stdout.contains("uniq"));
     assert!(stdout.contains("uptime"));
     assert!(stdout.contains("wc"));
+    assert!(stdout.contains("whoami"));
 }
 
 #[test]
@@ -255,7 +260,7 @@ fn test_install_creates_symlinks() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Created symlink"));
 
-    for applet in &["cat", "chmod", "cp", "cut", "df", "du", "echo", "expr", "find", "free", "grep", "head", "kill", "ln", "ls", "mkdir", "mv", "ps", "readlink", "relax", "rm", "sort", "tail", "test", "[", "touch", "tr", "uname", "uniq", "uptime", "wc"] {
+    for applet in &["cat", "chgrp", "chmod", "chown", "cp", "cut", "df", "du", "echo", "expr", "find", "free", "grep", "head", "id", "kill", "ln", "ls", "mkdir", "mv", "ps", "readlink", "relax", "rm", "sort", "su", "tail", "test", "[", "touch", "tr", "uname", "uniq", "uptime", "wc", "whoami"] {
         let link = tmp_dir.join(applet);
         assert!(link.exists(), "symlink for {} should exist", applet);
         let meta = fs::symlink_metadata(&link).unwrap();
@@ -2432,4 +2437,270 @@ fn test_tr_squeeze() {
     let output = child.wait_with_output().expect("failed to wait");
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "hello world\n");
+}
+
+#[test]
+fn test_whoami_nonempty() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "whoami"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert!(!stdout.is_empty(), "whoami should output a non-empty username");
+}
+
+#[test]
+fn test_whoami_matches_id_un() {
+    let whoami_output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "whoami"])
+        .output()
+        .expect("failed to execute process");
+
+    let id_output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "id", "-u", "-n"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(whoami_output.status.success());
+    assert!(id_output.status.success());
+    let whoami_name = String::from_utf8_lossy(&whoami_output.stdout).trim().to_string();
+    let id_name = String::from_utf8_lossy(&id_output.stdout).trim().to_string();
+    assert_eq!(whoami_name, id_name);
+}
+
+#[test]
+fn test_id_default_format() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "id"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("uid="));
+    assert!(stdout.contains("gid="));
+    assert!(stdout.contains("groups="));
+}
+
+#[test]
+fn test_id_u_flag() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "id", "-u"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert!(stdout.parse::<u32>().is_ok(), "id -u should output a numeric UID, got: {}", stdout);
+}
+
+#[test]
+fn test_id_u_name_flag() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "id", "-u", "-n"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert!(!stdout.is_empty(), "id -u -n should output a non-empty username");
+    assert!(stdout.parse::<u32>().is_err(), "id -u -n should output a name, not a number");
+}
+
+#[test]
+fn test_id_g_flag() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "id", "-g"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert!(stdout.parse::<u32>().is_ok(), "id -g should output a numeric GID, got: {}", stdout);
+}
+
+#[test]
+fn test_id_g_name_flag() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "id", "-g", "-n"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert!(!stdout.is_empty(), "id -g -n should output a non-empty group name");
+}
+
+#[test]
+fn test_id_g_supplementary_flag() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "id", "-G"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if !stdout.is_empty() {
+        let gids: Vec<&str> = stdout.split_whitespace().collect();
+        for gid in &gids {
+            assert!(gid.parse::<u32>().is_ok(), "each group should be numeric, got: {}", gid);
+        }
+    }
+}
+
+#[test]
+fn test_id_nonexistent_user() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "id", "nonexistent_user_xyz_12345"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("no such user"));
+}
+
+#[test]
+fn test_id_combined_flags() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "id", "-un"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert!(!stdout.is_empty(), "id -un should output a username");
+    assert!(stdout.parse::<u32>().is_err(), "id -un should output a name, not a number");
+}
+
+#[test]
+fn test_chown_missing_operand() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "chown"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("missing operand"));
+}
+
+#[test]
+fn test_chown_invalid_user() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_chown_inv");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("testfile.txt");
+    fs::write(&file, "hello").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "chown", "nonexistent_user_xyz_12345", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid user"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_chown_no_file() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "chown", "root", "/tmp/idlebox_nonexistent_file_xyz"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("cannot access"));
+}
+
+#[test]
+fn test_chgrp_missing_operand() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "chgrp"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("missing operand"));
+}
+
+#[test]
+fn test_chgrp_invalid_group() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_chgrp_inv");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("testfile.txt");
+    fs::write(&file, "hello").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "chgrp", "nonexistent_group_xyz_12345", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid group"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_chgrp_no_file() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "chgrp", "root", "/tmp/idlebox_nonexistent_file_xyz"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("cannot access"));
+}
+
+#[test]
+fn test_su_missing_command_argument() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "su", "-c"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("requires an argument"));
+}
+
+#[test]
+fn test_su_nonexistent_user() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "su", "nonexistent_user_xyz_12345"])
+        .output()
+        .expect("failed to execute process");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("does not exist") || stderr.contains("permission denied"),
+        "su should report either non-existent user or permission denied, got: {}",
+        stderr
+    );
+}
+
+#[test]
+fn test_su_help() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "su", "--help"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Usage:"));
+    assert!(stdout.contains("su"));
 }

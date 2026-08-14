@@ -53,6 +53,8 @@ BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this
 | `tail` | Output the last part of files | `-n` lines, `-c` bytes, ring buffer for efficiency, stdin pipe |
 | `grep` | Search for patterns in files or stdin | `-i` ignore case, `-v` invert, `-n` line numbers, `-c` count |
 | `chmod` | Change file mode bits | Octal numeric mode, `-R` recursive directory traversal |
+| `chown` | Change file owner and group | POSIX `user[:group]` syntax, `-R` recursive, numeric ID or name |
+| `chgrp` | Change group ownership | Group name or numeric GID, `-R` recursive |
 | `df` | Report file system disk space usage | Parses `/proc/mounts` + `statvfs` syscall, `-h` human-readable, per-path query |
 | `du` | Estimate file space usage | `-h` human-readable, `-s` summarize, `-d` max-depth control |
 | `ps` | Report a snapshot of current processes | Parses `/proc/[pid]/stat` + `cmdline`, `-e`/`-A` all processes, `-o` custom columns |
@@ -70,6 +72,9 @@ BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this
 | `uniq` | Report or omit repeated lines | `-c` count, `-d` repeated, `-u` unique, `-i` ignore-case |
 | `cut` | Remove sections from each line | `-d` delimiter, `-f` fields, `-c` characters, range support |
 | `tr` | Translate or delete characters | SET1/SET2 translation, `-d` delete, `-s` squeeze, range expansion |
+| `id` | Print real and effective user and group IDs | `-u`/`-g`/`-G`/`-n` flags, query by user name, POSIX libc FFI |
+| `whoami` | Print effective user name | POSIX `geteuid()` + `getpwuid()` FFI |
+| `su` | Switch user | `-l` login shell, `-c` command, `-s` shell; root-only |
 | `relax` | IdleBox special: take a break and relax | A unique relaxation experience, embodying the "Idle" spirit |
 | `--install` | Automated applet deployment via symlinks | Creates symlinks for all applets in a target directory; defaults to `/usr/local/bin` |
 
