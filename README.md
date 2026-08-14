@@ -48,6 +48,10 @@ BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this
 | `rm` | Remove files or directories | Supports `-r` recursive, `-f` force, combined `-rf` |
 | `cp` | Copy files and directories | Supports `-r` recursive, `-f` force, multi-source to directory |
 | `mv` | Move (rename) files and directories | Atomic rename with automatic cross-device fallback (copy + delete) |
+| `touch` | Create empty files or update timestamps | Creates new files, updates mtime/atime on existing files |
+| `head` | Output the first part of files | `-n` lines, `-c` bytes, multi-file with headers, stdin pipe |
+| `tail` | Output the last part of files | `-n` lines, `-c` bytes, ring buffer for efficiency, stdin pipe |
+| `grep` | Search for patterns in files or stdin | `-i` ignore case, `-v` invert, `-n` line numbers, `-c` count |
 | `relax` | IdleBox special: take a break and relax | A unique relaxation experience, embodying the "Idle" spirit |
 | `--install` | Automated applet deployment via symlinks | Creates symlinks for all applets in a target directory; defaults to `/usr/local/bin` |
 

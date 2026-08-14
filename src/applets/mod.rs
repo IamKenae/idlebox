@@ -1,17 +1,25 @@
 mod cat;
 mod cp;
 mod echo;
+mod grep;
+mod head;
 mod ls;
 mod mkdir;
 mod mv;
 mod relax;
 mod rm;
+mod tail;
+mod touch;
 
 pub use cat::CatApplet;
 pub use cp::CpApplet;
 pub use echo::EchoApplet;
+pub use grep::GrepApplet;
+pub use head::HeadApplet;
 pub use ls::LsApplet;
 pub use mkdir::MkdirApplet;
 pub use mv::MvApplet;
 pub use relax::RelaxApplet;
 pub use rm::RmApplet;
+pub use tail::TailApplet;
+pub use touch::TouchApplet;

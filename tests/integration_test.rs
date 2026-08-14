@@ -48,11 +48,15 @@ fn test_list_applets() {
     assert!(stdout.contains("cat"));
     assert!(stdout.contains("cp"));
     assert!(stdout.contains("echo"));
+    assert!(stdout.contains("grep"));
+    assert!(stdout.contains("head"));
     assert!(stdout.contains("ls"));
     assert!(stdout.contains("mkdir"));
     assert!(stdout.contains("mv"));
     assert!(stdout.contains("relax"));
     assert!(stdout.contains("rm"));
+    assert!(stdout.contains("tail"));
+    assert!(stdout.contains("touch"));
 }
 
 #[test]
@@ -232,7 +236,7 @@ fn test_install_creates_symlinks() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Created symlink"));
 
-    for applet in &["cat", "cp", "echo", "ls", "mkdir", "mv", "relax", "rm"] {
+    for applet in &["cat", "cp", "echo", "grep", "head", "ls", "mkdir", "mv", "relax", "rm", "tail", "touch"] {
         let link = tmp_dir.join(applet);
         assert!(link.exists(), "symlink for {} should exist", applet);
         let meta = fs::symlink_metadata(&link).unwrap();
@@ -607,6 +611,435 @@ fn test_mv_directory() {
     assert!(!src.exists());
     assert!(dst.join("nested").join("file.txt").exists());
     assert_eq!(fs::read_to_string(dst.join("nested").join("file.txt")).unwrap(), "data");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_touch_create_file() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_touch");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("newfile.txt");
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "touch", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert!(file.exists());
+    assert_eq!(fs::read_to_string(&file).unwrap(), "");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_touch_multiple_files() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_touch_multi");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let f1 = tmp_dir.join("a.txt");
+    let f2 = tmp_dir.join("b.txt");
+    let f3 = tmp_dir.join("c.txt");
+    let output = Command::new("cargo")
+        .args([
+            "run", "--quiet", "--", "touch",
+            f1.to_str().unwrap(),
+            f2.to_str().unwrap(),
+            f3.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert!(f1.exists());
+    assert!(f2.exists());
+    assert!(f3.exists());
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_touch_updates_existing_file() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_touch_update");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("existing.txt");
+    fs::write(&file, "content").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "touch", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert_eq!(fs::read_to_string(&file).unwrap(), "content");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_head_default_lines() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_head");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    let lines: Vec<String> = (1..=20).map(|i| format!("line {}", i)).collect();
+    fs::write(&file, lines.join("\n")).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "head", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let out_lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(out_lines.len(), 10);
+    assert_eq!(out_lines[0], "line 1");
+    assert_eq!(out_lines[9], "line 10");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_head_n_lines() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_head_n");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    let lines: Vec<String> = (1..=20).map(|i| format!("line {}", i)).collect();
+    fs::write(&file, lines.join("\n")).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "head", "-n", "5", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let out_lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(out_lines.len(), 5);
+    assert_eq!(out_lines[0], "line 1");
+    assert_eq!(out_lines[4], "line 5");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_head_bytes() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_head_c");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "Hello, World! This is a test.").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "head", "-c", "5", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "Hello");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_head_stdin() {
+    let mut child = Command::new("cargo")
+        .args(["run", "--quiet", "--", "head", "-n", "3"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn process");
+
+    {
+        let stdin = child.stdin.as_mut().expect("failed to get stdin");
+        stdin.write_all(b"line1\nline2\nline3\nline4\nline5\n").unwrap();
+    }
+
+    let output = child.wait_with_output().expect("failed to wait");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let out_lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(out_lines.len(), 3);
+    assert_eq!(out_lines[0], "line1");
+}
+
+#[test]
+fn test_tail_default_lines() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tail");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    let lines: Vec<String> = (1..=20).map(|i| format!("line {}", i)).collect();
+    fs::write(&file, lines.join("\n")).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "tail", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let out_lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(out_lines.len(), 10);
+    assert_eq!(out_lines[0], "line 11");
+    assert_eq!(out_lines[9], "line 20");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tail_n_lines() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tail_n");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    let lines: Vec<String> = (1..=20).map(|i| format!("line {}", i)).collect();
+    fs::write(&file, lines.join("\n")).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "tail", "-n", "3", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let out_lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(out_lines.len(), 3);
+    assert_eq!(out_lines[0], "line 18");
+    assert_eq!(out_lines[2], "line 20");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tail_stdin() {
+    let mut child = Command::new("cargo")
+        .args(["run", "--quiet", "--", "tail", "-n", "2"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn process");
+
+    {
+        let stdin = child.stdin.as_mut().expect("failed to get stdin");
+        stdin.write_all(b"line1\nline2\nline3\nline4\nline5\n").unwrap();
+    }
+
+    let output = child.wait_with_output().expect("failed to wait");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let out_lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(out_lines.len(), 2);
+    assert_eq!(out_lines[0], "line4");
+    assert_eq!(out_lines[1], "line5");
+}
+
+#[test]
+fn test_tail_bytes() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tail_c");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "Hello, World!").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "tail", "-c", "6", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "World!");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_grep_basic() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_grep");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "apple\nbanana\napple pie\ncherry\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "grep", "apple", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let out_lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(out_lines.len(), 2);
+    assert_eq!(out_lines[0], "apple");
+    assert_eq!(out_lines[1], "apple pie");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_grep_ignore_case() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_grep_i");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "Error\nerror\nERROR\nwarning\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "grep", "-i", "error", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let out_lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(out_lines.len(), 3);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_grep_line_number() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_grep_n");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "alpha\nbeta\ngamma\ndelta\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "grep", "-n", "gamma", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim(), "3:gamma");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_grep_invert_match() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_grep_v");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "apple\nbanana\napple pie\ncherry\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "grep", "-v", "apple", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let out_lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(out_lines.len(), 2);
+    assert_eq!(out_lines[0], "banana");
+    assert_eq!(out_lines[1], "cherry");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_grep_count() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_grep_c");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "apple\nbanana\napple pie\ncherry\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "grep", "-c", "apple", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "2");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_grep_stdin() {
+    let mut child = Command::new("cargo")
+        .args(["run", "--quiet", "--", "grep", "-i", "error"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to spawn process");
+
+    {
+        let stdin = child.stdin.as_mut().expect("failed to get stdin");
+        stdin.write_all(b"Info: ok\nError: fail\nWarning: maybe\nerror: again\n").unwrap();
+    }
+
+    let output = child.wait_with_output().expect("failed to wait");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let out_lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(out_lines.len(), 2);
+    assert_eq!(out_lines[0], "Error: fail");
+    assert_eq!(out_lines[1], "error: again");
+}
+
+#[test]
+fn test_grep_ignore_case_with_line_number() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_grep_in");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "Error here\nno match\nERROR there\nerror again\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "grep", "-in", "error", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let out_lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(out_lines.len(), 3);
+    assert_eq!(out_lines[0], "1:Error here");
+    assert_eq!(out_lines[1], "3:ERROR there");
+    assert_eq!(out_lines[2], "4:error again");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_grep_no_match_returns_1() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_grep_nomatch");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "hello\nworld\n").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "grep", "zzz", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert_eq!(output.status.code(), Some(1));
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
