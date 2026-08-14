@@ -1,8 +1,9 @@
 use crate::core::Applet;
 use crate::applets::{
-    CatApplet, ChmodApplet, CpApplet, DfApplet, DuApplet, EchoApplet, FreeApplet, GrepApplet,
-    HeadApplet, KillApplet, LnApplet, LsApplet, MkdirApplet, MvApplet, PsApplet, ReadlinkApplet,
-    RelaxApplet, RmApplet, TailApplet, TouchApplet, UnameApplet, UptimeApplet,
+    BracketApplet, CatApplet, ChmodApplet, CpApplet, DfApplet, DuApplet, EchoApplet, ExprApplet,
+    FindApplet, FreeApplet, GrepApplet, HeadApplet, KillApplet, LnApplet, LsApplet, MkdirApplet,
+    MvApplet, PsApplet, ReadlinkApplet, RelaxApplet, RmApplet, TailApplet, TestApplet,
+    TouchApplet, UnameApplet, UptimeApplet,
 };
 
 pub struct Dispatcher;
@@ -64,6 +65,24 @@ impl Dispatcher {
             }
             "echo" => {
                 let applet = EchoApplet;
+                if has_help || has_h_short {
+                    applet.help();
+                    Ok(0)
+                } else {
+                    applet.run(args)
+                }
+            }
+            "expr" => {
+                let applet = ExprApplet;
+                if has_help || has_h_short {
+                    applet.help();
+                    Ok(0)
+                } else {
+                    applet.run(args)
+                }
+            }
+            "find" => {
+                let applet = FindApplet;
                 if has_help || has_h_short {
                     applet.help();
                     Ok(0)
@@ -188,6 +207,24 @@ impl Dispatcher {
                     applet.run(args)
                 }
             }
+            "test" => {
+                let applet = TestApplet;
+                if has_help || has_h_short {
+                    applet.help();
+                    Ok(0)
+                } else {
+                    applet.run(args)
+                }
+            }
+            "[" => {
+                let applet = BracketApplet;
+                if has_help || has_h_short {
+                    applet.help();
+                    Ok(0)
+                } else {
+                    applet.run(args)
+                }
+            }
             "touch" => {
                 let applet = TouchApplet;
                 if has_help || has_h_short {
@@ -223,15 +260,16 @@ impl Dispatcher {
     }
     
     pub fn applet_names(&self) -> Vec<&'static str> {
-        vec!["cat", "chmod", "cp", "df", "du", "echo", "free", "grep", "head", "kill", "ln", "ls", "mkdir", "mv", "ps", "readlink", "relax", "rm", "tail", "touch", "uname", "uptime"]
+        vec!["cat", "chmod", "cp", "df", "du", "echo", "expr", "find", "free", "grep", "head", "kill", "ln", "ls", "mkdir", "mv", "ps", "readlink", "relax", "rm", "tail", "test", "[", "touch", "uname", "uptime"]
     }
 
     pub fn list_applets(&self) {
         let applets: Vec<&dyn Applet> = vec![
             &CatApplet, &ChmodApplet, &CpApplet, &DfApplet, &DuApplet, &EchoApplet,
-            &FreeApplet, &GrepApplet, &HeadApplet, &KillApplet, &LnApplet, &LsApplet,
-            &MkdirApplet, &MvApplet, &PsApplet, &ReadlinkApplet, &RelaxApplet, &RmApplet,
-            &TailApplet, &TouchApplet, &UnameApplet, &UptimeApplet,
+            &ExprApplet, &FindApplet, &FreeApplet, &GrepApplet, &HeadApplet, &KillApplet,
+            &LnApplet, &LsApplet, &MkdirApplet, &MvApplet, &PsApplet, &ReadlinkApplet,
+            &RelaxApplet, &RmApplet, &TailApplet, &TestApplet, &BracketApplet, &TouchApplet,
+            &UnameApplet, &UptimeApplet,
         ];
         for applet in applets {
             println!("{:<12} {}", applet.name(), applet.description());

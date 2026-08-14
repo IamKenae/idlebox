@@ -62,6 +62,9 @@ BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this
 | `ln` | Create links between files | `-s` symbolic links, `-f` force overwrite, hard links by default, multi-target to directory |
 | `readlink` | Print resolved symbolic links | `-f`/`-e` canonicalize to absolute path, `-n` no trailing newline |
 | `uname` | Print system information | POSIX `uname()` FFI, `-a` all, `-s`/`-n`/`-r`/`-v`/`-m` individual fields |
+| `test` / `[` | Evaluate conditional expressions | POSIX-compatible `test` and `[` forms, file/string/numeric tests, logical operators |
+| `expr` | Evaluate expressions and print result | Arithmetic, comparison, logical, string ops; recursive descent parser |
+| `find` | Search for files in a directory hierarchy | Glob `-name`, `-type`, `-maxdepth`, `-empty`; pure Rust traversal |
 | `relax` | IdleBox special: take a break and relax | A unique relaxation experience, embodying the "Idle" spirit |
 | `--install` | Automated applet deployment via symlinks | Creates symlinks for all applets in a target directory; defaults to `/usr/local/bin` |
 
