@@ -1,0 +1,24 @@
+[package]
+name = "idlebox"
+version = "0.1.0"
+edition = "2021"
+authors = ["IdleBox Contributors"]
+license = "Apache-2.0"
+description = "A modern, lightweight BusyBox alternative written in Rust"
+repository = "https://github.com/IamKenae/idlebox"
+keywords = ["busybox", "toolbox", "embedded", "minimal"]
+categories = ["command-line-utilities", "os"]
+
+[dependencies]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+debug = false
+
+[profile.release.build-override]
+opt-level = "z"
+codegen-units = 1
