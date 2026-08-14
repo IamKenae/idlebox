@@ -59,6 +59,9 @@ BusyBox 承载了嵌入式 Linux 的半壁江山，但它的 C 代码库已走�
 | `kill` | 向进程发送信号 | POSIX 信号 FFI、支持信号名称（`-TERM`）和编号（`-9`）、`-l` 列出信号 |
 | `free` | 显示内存使用情况 | 解析 `/proc/meminfo`、`-h` 人类可读、显示内存与 Swap |
 | `uptime` | 显示系统运行时间 | 解析 `/proc/uptime` + `/proc/loadavg`、显示运行时长与 1/5/15 分钟平均负载 |
+| `ln` | 创建文件链接 | `-s` 符号链接、`-f` 强制覆盖、默认硬链接、多目标链接到目录 |
+| `readlink` | 打印已解析的符号链接 | `-f`/`-e` 规范化为绝对路径、`-n` 不输出末尾换行符 |
+| `uname` | 打印系统信息 | POSIX `uname()` FFI、`-a` 全部信息、`-s`/`-n`/`-r`/`-v`/`-m` 单独字段 |
 | `relax` | IdleBox 特色：休息一下 | 独特的放松体验，体现 "Idle" 精神 |
 | `--install` | 通过符号链接自动部署 Applet | 在目标目录为所有 Applet 创建符号链接；默认安装到 `/usr/local/bin` |
 

@@ -59,6 +59,9 @@ BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this
 | `kill` | Send signals to processes | POSIX signal FFI, supports signal names (`-TERM`) and numbers (`-9`), `-l` list signals |
 | `free` | Display memory usage | Parses `/proc/meminfo`, `-h` human-readable, shows Mem + Swap |
 | `uptime` | Tell how long the system has been running | Parses `/proc/uptime` + `/proc/loadavg`, shows uptime and 1/5/15 min load average |
+| `ln` | Create links between files | `-s` symbolic links, `-f` force overwrite, hard links by default, multi-target to directory |
+| `readlink` | Print resolved symbolic links | `-f`/`-e` canonicalize to absolute path, `-n` no trailing newline |
+| `uname` | Print system information | POSIX `uname()` FFI, `-a` all, `-s`/`-n`/`-r`/`-v`/`-m` individual fields |
 | `relax` | IdleBox special: take a break and relax | A unique relaxation experience, embodying the "Idle" spirit |
 | `--install` | Automated applet deployment via symlinks | Creates symlinks for all applets in a target directory; defaults to `/usr/local/bin` |
 

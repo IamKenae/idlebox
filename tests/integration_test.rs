@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Write;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::process::Command;
 
 #[test]
@@ -56,14 +56,17 @@ fn test_list_applets() {
     assert!(stdout.contains("grep"));
     assert!(stdout.contains("head"));
     assert!(stdout.contains("kill"));
+    assert!(stdout.contains("ln"));
     assert!(stdout.contains("ls"));
     assert!(stdout.contains("mkdir"));
     assert!(stdout.contains("mv"));
     assert!(stdout.contains("ps"));
+    assert!(stdout.contains("readlink"));
     assert!(stdout.contains("relax"));
     assert!(stdout.contains("rm"));
     assert!(stdout.contains("tail"));
     assert!(stdout.contains("touch"));
+    assert!(stdout.contains("uname"));
     assert!(stdout.contains("uptime"));
 }
 
@@ -244,7 +247,7 @@ fn test_install_creates_symlinks() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Created symlink"));
 
-    for applet in &["cat", "chmod", "cp", "df", "du", "echo", "free", "grep", "head", "kill", "ls", "mkdir", "mv", "ps", "relax", "rm", "tail", "touch", "uptime"] {
+    for applet in &["cat", "chmod", "cp", "df", "du", "echo", "free", "grep", "head", "kill", "ln", "ls", "mkdir", "mv", "ps", "readlink", "relax", "rm", "tail", "touch", "uname", "uptime"] {
         let link = tmp_dir.join(applet);
         assert!(link.exists(), "symlink for {} should exist", applet);
         let meta = fs::symlink_metadata(&link).unwrap();
@@ -1398,4 +1401,212 @@ fn test_uptime_load_average_format() {
         let trimmed = load.trim();
         assert!(trimmed.contains('.'), "load value should be decimal: {}", trimmed);
     }
+}
+
+#[test]
+fn test_ln_symbolic_link() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_ln_s");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let src = tmp_dir.join("source.txt");
+    fs::write(&src, "hello").unwrap();
+    let link = tmp_dir.join("link.txt");
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "ln", "-s", src.to_str().unwrap(), link.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+    assert_eq!(fs::read_to_string(&link).unwrap(), "hello");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_ln_hard_link() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_ln_hard");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let src = tmp_dir.join("source.txt");
+    fs::write(&src, "hello").unwrap();
+    let link = tmp_dir.join("link.txt");
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "ln", src.to_str().unwrap(), link.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert!(link.exists());
+    assert!(!link.symlink_metadata().unwrap().file_type().is_symlink());
+    assert_eq!(fs::read_to_string(&link).unwrap(), "hello");
+
+    let src_meta = fs::metadata(&src).unwrap();
+    let link_meta = fs::metadata(&link).unwrap();
+    assert_eq!(src_meta.ino(), link_meta.ino());
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_ln_force_overwrite() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_ln_f");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let src = tmp_dir.join("source.txt");
+    fs::write(&src, "new content").unwrap();
+    let link = tmp_dir.join("link.txt");
+    fs::write(&link, "old content").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "ln", "-sf", src.to_str().unwrap(), link.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+    assert_eq!(fs::read_to_string(&link).unwrap(), "new content");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_ln_multiple_to_dir() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_ln_multi");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let f1 = tmp_dir.join("f1.txt");
+    let f2 = tmp_dir.join("f2.txt");
+    let dir = tmp_dir.join("links");
+    fs::write(&f1, "one").unwrap();
+    fs::write(&f2, "two").unwrap();
+    fs::create_dir(&dir).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "ln", "-s",
+            f1.to_str().unwrap(),
+            f2.to_str().unwrap(),
+            dir.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert!(dir.join("f1.txt").symlink_metadata().unwrap().file_type().is_symlink());
+    assert!(dir.join("f2.txt").symlink_metadata().unwrap().file_type().is_symlink());
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_readlink_symbolic() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_readlink");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let src = tmp_dir.join("target.txt");
+    fs::write(&src, "data").unwrap();
+    let link = tmp_dir.join("link.txt");
+    std::os::unix::fs::symlink(&src, &link).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "readlink", link.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert_eq!(stdout, src.to_str().unwrap());
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_readlink_canonicalize() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_readlink_f");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let src = tmp_dir.join("target.txt");
+    fs::write(&src, "data").unwrap();
+    let link = tmp_dir.join("link.txt");
+    std::os::unix::fs::symlink(&src, &link).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "readlink", "-f", link.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert!(stdout.starts_with('/'));
+    assert!(stdout.ends_with("target.txt"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_readlink_no_newline() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_readlink_n");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let src = tmp_dir.join("target.txt");
+    fs::write(&src, "data").unwrap();
+    let link = tmp_dir.join("link.txt");
+    std::os::unix::fs::symlink(&src, &link).unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "readlink", "-n", link.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.ends_with('\n'));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_uname_sysname() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "uname", "-s"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert_eq!(stdout, "Linux");
+}
+
+#[test]
+fn test_uname_all() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "uname", "-a"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Linux"));
+    let parts: Vec<&str> = stdout.trim().split_whitespace().collect();
+    assert!(parts.len() >= 5, "uname -a should output at least 5 fields, got: {:?}", parts);
+}
+
+#[test]
+fn test_uname_default_is_sysname() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "uname"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    assert_eq!(stdout, "Linux");
 }
