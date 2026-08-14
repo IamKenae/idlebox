@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::Write;
+use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 
 #[test]
@@ -46,7 +47,10 @@ fn test_list_applets() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("cat"));
+    assert!(stdout.contains("chmod"));
     assert!(stdout.contains("cp"));
+    assert!(stdout.contains("df"));
+    assert!(stdout.contains("du"));
     assert!(stdout.contains("echo"));
     assert!(stdout.contains("grep"));
     assert!(stdout.contains("head"));
@@ -236,7 +240,7 @@ fn test_install_creates_symlinks() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Created symlink"));
 
-    for applet in &["cat", "cp", "echo", "grep", "head", "ls", "mkdir", "mv", "relax", "rm", "tail", "touch"] {
+    for applet in &["cat", "chmod", "cp", "df", "du", "echo", "grep", "head", "ls", "mkdir", "mv", "relax", "rm", "tail", "touch"] {
         let link = tmp_dir.join(applet);
         assert!(link.exists(), "symlink for {} should exist", applet);
         let meta = fs::symlink_metadata(&link).unwrap();
@@ -1040,6 +1044,192 @@ fn test_grep_no_match_returns_1() {
         .expect("failed to execute process");
 
     assert_eq!(output.status.code(), Some(1));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_chmod_octal_mode() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_chmod");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("testfile.txt");
+    fs::write(&file, "hello").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "chmod", "755", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let metadata = fs::metadata(&file).unwrap();
+    let mode = metadata.permissions().mode() & 0o777;
+    assert_eq!(mode, 0o755);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_chmod_multiple_files() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_chmod_multi");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let f1 = tmp_dir.join("a.txt");
+    let f2 = tmp_dir.join("b.txt");
+    fs::write(&f1, "one").unwrap();
+    fs::write(&f2, "two").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "chmod", "0644", f1.to_str().unwrap(), f2.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert_eq!(fs::metadata(&f1).unwrap().permissions().mode() & 0o777, 0o644);
+    assert_eq!(fs::metadata(&f2).unwrap().permissions().mode() & 0o777, 0o644);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_chmod_recursive() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_chmod_r");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let sub = tmp_dir.join("subdir");
+    fs::create_dir_all(sub.join("nested")).unwrap();
+    let f1 = tmp_dir.join("file.txt");
+    let f2 = sub.join("file2.txt");
+    let f3 = sub.join("nested").join("file3.txt");
+    fs::write(&f1, "a").unwrap();
+    fs::write(&f2, "b").unwrap();
+    fs::write(&f3, "c").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "chmod", "-R", "700", tmp_dir.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert_eq!(fs::metadata(&f1).unwrap().permissions().mode() & 0o777, 0o700);
+    assert_eq!(fs::metadata(&f2).unwrap().permissions().mode() & 0o777, 0o700);
+    assert_eq!(fs::metadata(&f3).unwrap().permissions().mode() & 0o777, 0o700);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_df_human_readable() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "df", "-h", "/"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Filesystem"));
+    assert!(stdout.contains("Size"));
+    assert!(stdout.contains("Used"));
+    assert!(stdout.contains("Avail"));
+    assert!(stdout.contains("Use%"));
+    assert!(stdout.contains("Mounted on"));
+    assert!(stdout.contains("/"));
+}
+
+#[test]
+fn test_df_specific_path() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "df", "-h", "/tmp"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Filesystem"));
+    assert!(stdout.contains("Mounted on"));
+}
+
+#[test]
+fn test_df_no_args() {
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "df"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Filesystem"));
+}
+
+#[test]
+fn test_du_summarize() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_du_s");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    fs::write(tmp_dir.join("file1.txt"), "hello world").unwrap();
+    fs::create_dir(tmp_dir.join("sub")).unwrap();
+    fs::write(tmp_dir.join("sub").join("file2.txt"), "more content here").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "du", "-s", tmp_dir.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines.len(), 1);
+    assert!(lines[0].contains(tmp_dir.to_str().unwrap()));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_du_human_readable() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_du_h");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    fs::write(tmp_dir.join("file1.txt"), "hello world").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "du", "-h", "-s", tmp_dir.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("K") || stdout.contains("M") || stdout.contains("B"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_du_max_depth() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_du_d");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    fs::create_dir_all(tmp_dir.join("a").join("b")).unwrap();
+    fs::write(tmp_dir.join("file.txt"), "data").unwrap();
+    fs::write(tmp_dir.join("a").join("file2.txt"), "data2").unwrap();
+    fs::write(tmp_dir.join("a").join("b").join("file3.txt"), "data3").unwrap();
+
+    let output = Command::new("cargo")
+        .args(["run", "--quiet", "--", "du", "-h", "-d", "1", tmp_dir.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert!(lines.len() >= 2, "expected at least 2 lines (subdir + total), got: {:?}", lines);
+    let last_line = lines[lines.len() - 1];
+    assert!(last_line.contains(tmp_dir.to_str().unwrap()), "last line should be the total for root dir");
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }

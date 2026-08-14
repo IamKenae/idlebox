@@ -1,5 +1,8 @@
 mod cat;
+mod chmod;
 mod cp;
+mod df;
+mod du;
 mod echo;
 mod grep;
 mod head;
@@ -12,7 +15,10 @@ mod tail;
 mod touch;
 
 pub use cat::CatApplet;
+pub use chmod::ChmodApplet;
 pub use cp::CpApplet;
+pub use df::DfApplet;
+pub use du::DuApplet;
 pub use echo::EchoApplet;
 pub use grep::GrepApplet;
 pub use head::HeadApplet;

@@ -52,6 +52,9 @@ BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this
 | `head` | Output the first part of files | `-n` lines, `-c` bytes, multi-file with headers, stdin pipe |
 | `tail` | Output the last part of files | `-n` lines, `-c` bytes, ring buffer for efficiency, stdin pipe |
 | `grep` | Search for patterns in files or stdin | `-i` ignore case, `-v` invert, `-n` line numbers, `-c` count |
+| `chmod` | Change file mode bits | Octal numeric mode, `-R` recursive directory traversal |
+| `df` | Report file system disk space usage | Parses `/proc/mounts` + `statvfs` syscall, `-h` human-readable, per-path query |
+| `du` | Estimate file space usage | `-h` human-readable, `-s` summarize, `-d` max-depth control |
 | `relax` | IdleBox special: take a break and relax | A unique relaxation experience, embodying the "Idle" spirit |
 | `--install` | Automated applet deployment via symlinks | Creates symlinks for all applets in a target directory; defaults to `/usr/local/bin` |
 
