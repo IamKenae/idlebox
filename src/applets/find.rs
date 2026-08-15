@@ -286,8 +286,13 @@ fn find_parallel(
                         }
                     };
 
-                    let mut subdirs: Vec<PathBuf> =
-                        entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+                    let mut subdirs: Vec<PathBuf> = Vec::new();
+                    for entry in entries {
+                        match entry {
+                            Ok(e) => subdirs.push(e.path()),
+                            Err(e) => eprintln!("find: {}", e),
+                        }
+                    }
                     subdirs.sort_unstable_by(|a, b| a.file_name().cmp(&b.file_name()));
 
                     {
