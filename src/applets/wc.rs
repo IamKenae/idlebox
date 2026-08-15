@@ -23,6 +23,8 @@ struct CountMode {
     chars: bool,
 }
 
+type WcParallelResult = (String, Result<Counts, io::Error>);
+
 impl Applet for WcApplet {
     fn name(&self) -> &'static str {
         "wc"
@@ -142,7 +144,7 @@ impl Applet for WcApplet {
         let mut total = Counts::default();
         let mut had_error = false;
 
-        let has_stdin = files.iter().any(|f| *f == "-");
+        let has_stdin = files.contains(&"-");
         let file_count = files.iter().filter(|f| **f != "-").count();
 
         if file_count <= 1 || has_stdin || num_threads <= 1 {
@@ -343,11 +345,12 @@ impl WcApplet {
         writeln!(out)
     }
 
+    #[allow(clippy::type_complexity)]
     fn count_parallel(
         files: &[&str],
         mode: CountMode,
         num_threads: usize,
-    ) -> Vec<(String, Result<Counts, io::Error>)> {
+    ) -> Vec<WcParallelResult> {
         let files_arc: Arc<Vec<String>> = Arc::new(files.iter().map(|s| s.to_string()).collect());
         let files_len = files.len();
         let file_indices: Vec<usize> = (0..files_len).collect();
@@ -361,22 +364,20 @@ impl WcApplet {
             let files_arc = Arc::clone(&files_arc);
             let tx = tx.clone();
 
-            let handle = thread::spawn(move || {
-                loop {
-                    let idx = {
-                        let mut guard = file_indices.lock().unwrap();
-                        guard.next()
-                    };
+            let handle = thread::spawn(move || loop {
+                let idx = {
+                    let mut guard = file_indices.lock().unwrap();
+                    guard.next()
+                };
 
-                    let idx = match idx {
-                        Some(i) => i,
-                        None => break,
-                    };
+                let idx = match idx {
+                    Some(i) => i,
+                    None => break,
+                };
 
-                    let file = &files_arc[idx];
-                    let result = Self::count_file(file, mode);
-                    tx.send((idx, file.clone(), result)).ok();
-                }
+                let file = &files_arc[idx];
+                let result = Self::count_file(file, mode);
+                tx.send((idx, file.clone(), result)).ok();
             });
             handles.push(handle);
         }

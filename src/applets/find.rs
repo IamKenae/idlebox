@@ -280,13 +280,9 @@ fn find_parallel(
                         }
                     };
 
-                    let mut subdirs: Vec<PathBuf> = entries
-                        .filter_map(|e| e.ok())
-                        .map(|e| e.path())
-                        .collect();
-                    subdirs.sort_unstable_by(|a, b| {
-                        a.file_name().cmp(&b.file_name())
-                    });
+                    let mut subdirs: Vec<PathBuf> =
+                        entries.filter_map(|e| e.ok()).map(|e| e.path()).collect();
+                    subdirs.sort_unstable_by(|a, b| a.file_name().cmp(&b.file_name()));
 
                     {
                         let mut queue = work_queue.lock().unwrap();
