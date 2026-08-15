@@ -13,5 +13,9 @@ pub(crate) use size_format::human_size;
 pub(crate) use size_format::rounded_percentage;
 
 pub fn banner() -> &'static str {
-    concat!("IdleBox v", env!("CARGO_PKG_VERSION"), " - A lightweight multi-call toolbox")
+    concat!(
+        "IdleBox v",
+        env!("CARGO_PKG_VERSION"),
+        " - A lightweight multi-call toolbox"
+    )
 }

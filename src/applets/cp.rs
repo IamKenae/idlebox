@@ -1,6 +1,7 @@
 use crate::core::{
+    banner,
     file_ops::{replace_file, same_file, unique_sibling_path, FollowSymlinks},
-    banner, Applet,
+    Applet,
 };
 use std::fs::{self, OpenOptions};
 use std::io;
