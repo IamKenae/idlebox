@@ -1,10 +1,13 @@
 use crate::core::Applet;
 use std::fs::File;
 use std::io::{self, Read, Write};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 pub struct WcApplet;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Counts {
     lines: usize,
     words: usize,
@@ -19,6 +22,8 @@ struct CountMode {
     bytes: bool,
     chars: bool,
 }
+
+type WcParallelResult = (String, Result<Counts, io::Error>);
 
 impl Applet for WcApplet {
     fn name(&self) -> &'static str {
@@ -35,6 +40,7 @@ impl Applet for WcApplet {
         let mut show_bytes = false;
         let mut show_chars = false;
         let mut files: Vec<&str> = Vec::new();
+        let mut num_threads: Option<usize> = None;
 
         let mut i = 0;
         while i < args.len() {
@@ -48,18 +54,64 @@ impl Applet for WcApplet {
                 "-w" | "--words" => show_words = true,
                 "-c" | "--bytes" => show_bytes = true,
                 "-m" | "--chars" => show_chars = true,
+                "-j" | "--threads" => {
+                    i += 1;
+                    if i >= args.len() {
+                        return Err("wc: missing argument for -j".into());
+                    }
+                    num_threads = Some(match args[i].parse::<usize>() {
+                        Ok(n) if n > 0 => n,
+                        _ => return Err(format!("wc: invalid thread count: {}", args[i]).into()),
+                    });
+                }
                 "--" => {
                     i += 1;
                     files.extend(args[i..].iter().map(|s| s.as_str()));
                     break;
                 }
                 _ if arg.starts_with('-') && arg.len() > 1 && !arg.starts_with("--") => {
-                    for ch in arg[1..].chars() {
+                    let mut chars = arg[1..].chars().peekable();
+                    while let Some(ch) = chars.next() {
                         match ch {
                             'l' => show_lines = true,
                             'w' => show_words = true,
                             'c' => show_bytes = true,
                             'm' => show_chars = true,
+                            'h' => {
+                                self.help();
+                                return Ok(0);
+                            }
+                            'j' => {
+                                let rest: String = chars.collect();
+                                if rest.is_empty() {
+                                    i += 1;
+                                    if i >= args.len() {
+                                        return Err("wc: missing argument for -j".into());
+                                    }
+                                    num_threads = Some(match args[i].parse::<usize>() {
+                                        Ok(n) if n > 0 => n,
+                                        _ => {
+                                            return Err(format!(
+                                                "wc: invalid thread count: {}",
+                                                args[i]
+                                            )
+                                            .into())
+                                        }
+                                    });
+                                } else {
+                                    num_threads = Some(match rest.parse::<usize>() {
+                                        Ok(n) if n > 0 => n,
+                                        _ => {
+                                            return Err(format!(
+                                                "wc: invalid thread count: {}",
+                                                rest
+                                            )
+                                            .into())
+                                        }
+                                    });
+                                }
+                                break;
+                            }
                             _ => return Err(format!("wc: invalid option -- '{}'", ch).into()),
                         }
                     }
@@ -85,35 +137,67 @@ impl Applet for WcApplet {
             files.push("-");
         }
 
+        let num_threads = num_threads.unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1)
+        });
+
         let stdout = io::stdout();
         let mut out = stdout.lock();
         let mut total = Counts::default();
         let mut had_error = false;
 
-        for file in &files {
-            let result = if *file == "-" {
-                Self::count_stdin(mode)
-            } else {
-                Self::count_file(file, mode)
-            };
+        let has_stdin = files.contains(&"-");
+        let file_count = files.iter().filter(|f| **f != "-").count();
 
-            match result {
-                Ok(counts) => {
-                    let label = if *file == "-" { None } else { Some(*file) };
-                    Self::print_counts(&mut out, &counts, mode, label)?;
-                    total.lines += counts.lines;
-                    total.words += counts.words;
-                    total.bytes += counts.bytes;
-                    total.chars += counts.chars;
+        // Use single-threaded path when:
+        // - Only 0 or 1 regular files (parallelism overhead not worth it)
+        // - stdin is present (must be read sequentially)
+        // - User explicitly requested single thread
+        if file_count <= 1 || has_stdin || num_threads <= 1 {
+            for file in &files {
+                let result = if *file == "-" {
+                    Self::count_stdin(mode)
+                } else {
+                    Self::count_file(file, mode)
+                };
+
+                match result {
+                    Ok(counts) => {
+                        let label = if *file == "-" { None } else { Some(*file) };
+                        Self::print_counts(&mut out, &counts, mode, label)?;
+                        total.lines += counts.lines;
+                        total.words += counts.words;
+                        total.bytes += counts.bytes;
+                        total.chars += counts.chars;
+                    }
+                    Err(error) => {
+                        eprintln!("wc: {}: {}", file, error);
+                        had_error = true;
+                    }
                 }
-                Err(error) => {
-                    eprintln!("wc: {}: {}", file, error);
-                    had_error = true;
+            }
+        } else {
+            let results = Self::count_parallel(&files, mode, num_threads);
+            for (file, result) in results {
+                match result {
+                    Ok(counts) => {
+                        Self::print_counts(&mut out, &counts, mode, Some(&file))?;
+                        total.lines += counts.lines;
+                        total.words += counts.words;
+                        total.bytes += counts.bytes;
+                        total.chars += counts.chars;
+                    }
+                    Err(error) => {
+                        eprintln!("wc: {}: {}", file, error);
+                        had_error = true;
+                    }
                 }
             }
         }
 
-        if files.len() > 1 {
+        if file_count > 1 {
             Self::print_counts(&mut out, &total, mode, Some("total"))?;
         }
 
@@ -130,6 +214,7 @@ impl Applet for WcApplet {
         println!("  -w, --words     print the word counts");
         println!("  -c, --bytes     print the byte counts");
         println!("  -m, --chars     print the character counts");
+        println!("  -j, --threads N use N threads for parallel counting (default: auto)");
         println!();
         println!("With no FILE, or when FILE is -, read standard input.");
     }
@@ -180,8 +265,6 @@ impl WcApplet {
             }
         }
 
-        // `count_complete_utf8` leaves only one incomplete UTF-8 sequence. This
-        // matches `String::from_utf8_lossy` by counting it as one replacement char.
         if !pending_utf8.is_empty() {
             Self::count_char('\u{fffd}', &mut counts, &mut in_word, mode);
         }
@@ -267,6 +350,70 @@ impl WcApplet {
             write!(out, " {}", name)?;
         }
         writeln!(out)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn count_parallel(
+        files: &[&str],
+        mode: CountMode,
+        num_threads: usize,
+    ) -> Vec<WcParallelResult> {
+        let files_arc: Arc<Vec<String>> = Arc::new(files.iter().map(|s| s.to_string()).collect());
+        let files_len = files.len();
+        let file_indices: Vec<usize> = (0..files_len).collect();
+        let file_indices = Arc::new(Mutex::new(file_indices.into_iter()));
+
+        let mut handles = Vec::new();
+        let (tx, rx) = mpsc::channel();
+
+        for _ in 0..num_threads.min(files_len) {
+            let file_indices = Arc::clone(&file_indices);
+            let files_arc = Arc::clone(&files_arc);
+            let tx = tx.clone();
+
+            let handle = thread::spawn(move || loop {
+                let idx = {
+                    let mut guard = file_indices.lock().unwrap_or_else(|e| e.into_inner());
+                    guard.next()
+                };
+
+                let idx = match idx {
+                    Some(i) => i,
+                    None => break,
+                };
+
+                let file = &files_arc[idx];
+                let result = Self::count_file(file, mode);
+                tx.send((idx, file.clone(), result)).ok();
+            });
+            handles.push(handle);
+        }
+
+        drop(tx);
+
+        let mut results: Vec<(usize, String, Result<Counts, io::Error>)> = rx.iter().collect();
+
+        let mut had_panic = false;
+        for handle in handles {
+            if let Err(e) = handle.join() {
+                eprintln!("wc: worker thread panicked: {:?}", e);
+                had_panic = true;
+            }
+        }
+
+        if had_panic && results.len() < files_len {
+            eprintln!(
+                "wc: warning: only processed {} of {} files due to thread panic",
+                results.len(),
+                files_len
+            );
+        }
+
+        results.sort_by_key(|(idx, _, _)| *idx);
+        results
+            .into_iter()
+            .map(|(_, file, result)| (file, result))
+            .collect()
     }
 }
 

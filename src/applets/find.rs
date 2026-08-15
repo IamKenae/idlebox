@@ -1,6 +1,11 @@
 use crate::core::Applet;
+use std::collections::VecDeque;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 pub struct FindApplet;
 
@@ -19,6 +24,7 @@ impl Applet for FindApplet {
         let mut type_filter: Option<char> = None;
         let mut max_depth: Option<usize> = None;
         let mut empty_only = false;
+        let mut num_threads: Option<usize> = None;
 
         let mut i = 0;
         while i < args.len() {
@@ -62,6 +68,20 @@ impl Applet for FindApplet {
                 "-empty" => {
                     empty_only = true;
                 }
+                "-j" | "--threads" => {
+                    i += 1;
+                    if i >= args.len() {
+                        eprintln!("find: missing argument for -j");
+                        return Ok(1);
+                    }
+                    num_threads = Some(match args[i].parse::<usize>() {
+                        Ok(n) if n > 0 => n,
+                        _ => {
+                            eprintln!("find: invalid thread count: {}", args[i]);
+                            return Ok(1);
+                        }
+                    });
+                }
                 _ => {
                     if args[i].starts_with('-') {
                         eprintln!("find: unknown option: {}", args[i]);
@@ -77,18 +97,34 @@ impl Applet for FindApplet {
             paths.push(".".to_string());
         }
 
-        for path in &paths {
-            find_recursive(
-                Path::new(path),
+        let num_threads = num_threads.unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1)
+        });
+
+        if num_threads <= 1 {
+            for path in &paths {
+                find_recursive(
+                    Path::new(path),
+                    &name_pattern,
+                    &type_filter,
+                    &max_depth,
+                    empty_only,
+                    0,
+                )?;
+            }
+            Ok(0)
+        } else {
+            find_parallel(
+                &paths,
                 &name_pattern,
                 &type_filter,
                 &max_depth,
                 empty_only,
-                0,
-            )?;
+                num_threads,
+            )
         }
-
-        Ok(0)
     }
 
     fn help(&self) {
@@ -101,6 +137,7 @@ impl Applet for FindApplet {
         println!("  -type TYPE     filter by type: f (file), d (directory), l (symlink)");
         println!("  -maxdepth N    limit recursion depth");
         println!("  -empty         match only empty files or directories");
+        println!("  -j, --threads N  use N threads for parallel search (default: auto)");
         println!();
         println!("Examples:");
         println!("  find . -name '*.rs'");
@@ -150,6 +187,169 @@ fn find_recursive(
     }
 
     Ok(())
+}
+
+fn find_parallel(
+    paths: &[String],
+    name_pattern: &Option<String>,
+    type_filter: &Option<char>,
+    max_depth: &Option<usize>,
+    empty_only: bool,
+    num_threads: usize,
+) -> Result<i32, Box<dyn std::error::Error>> {
+    let options = Arc::new(FindOptions {
+        name_pattern: name_pattern.clone(),
+        type_filter: *type_filter,
+        max_depth: *max_depth,
+        empty_only,
+    });
+
+    let work_queue = Arc::new(Mutex::new(VecDeque::<(PathBuf, usize)>::new()));
+    {
+        let mut queue = work_queue.lock().unwrap_or_else(|e| e.into_inner());
+        for path in paths {
+            queue.push_back((PathBuf::from(path), 0));
+        }
+    }
+
+    let (tx, rx) = mpsc::channel::<(Vec<PathBuf>, bool)>();
+    let active_threads = Arc::new(AtomicUsize::new(0));
+
+    let mut handles = Vec::new();
+    for _ in 0..num_threads {
+        let work_queue = Arc::clone(&work_queue);
+        let options = Arc::clone(&options);
+        let tx = tx.clone();
+        let active_threads = Arc::clone(&active_threads);
+
+        let handle = thread::spawn(move || {
+            let mut local_results = Vec::new();
+            let mut had_error = false;
+
+            loop {
+                let (path, depth) = {
+                    let mut queue = work_queue.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(item) = queue.pop_front() {
+                        active_threads.fetch_add(1, Ordering::AcqRel);
+                        item
+                    } else {
+                        // Re-check under lock to avoid race with concurrent push
+                        if active_threads.load(Ordering::Acquire) == 0 {
+                            break;
+                        }
+                        drop(queue);
+                        std::thread::yield_now();
+                        continue;
+                    }
+                };
+
+                if let Some(max) = options.max_depth {
+                    if depth > max {
+                        active_threads.fetch_sub(1, Ordering::AcqRel);
+                        continue;
+                    }
+                }
+
+                let metadata = match fs::symlink_metadata(&path) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("find: {}: {}", path.display(), e);
+                        had_error = true;
+                        active_threads.fetch_sub(1, Ordering::AcqRel);
+                        continue;
+                    }
+                };
+
+                let is_match = match check_match(
+                    &path,
+                    &metadata,
+                    &options.name_pattern,
+                    &options.type_filter,
+                    options.empty_only,
+                ) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        eprintln!("find: {}: {}", path.display(), e);
+                        had_error = true;
+                        active_threads.fetch_sub(1, Ordering::AcqRel);
+                        continue;
+                    }
+                };
+
+                if is_match {
+                    local_results.push(path.clone());
+                }
+
+                if metadata.file_type().is_dir() {
+                    let entries = match fs::read_dir(&path) {
+                        Ok(e) => e,
+                        Err(e) => {
+                            eprintln!("find: {}: {}", path.display(), e);
+                            had_error = true;
+                            active_threads.fetch_sub(1, Ordering::AcqRel);
+                            continue;
+                        }
+                    };
+
+                    let mut subdirs: Vec<PathBuf> = Vec::new();
+                    for entry in entries {
+                        match entry {
+                            Ok(e) => subdirs.push(e.path()),
+                            Err(e) => {
+                                eprintln!("find: {}", e);
+                                had_error = true;
+                            }
+                        }
+                    }
+                    subdirs.sort_unstable_by(|a, b| a.file_name().cmp(&b.file_name()));
+
+                    {
+                        let mut queue = work_queue.lock().unwrap_or_else(|e| e.into_inner());
+                        for subdir in subdirs {
+                            queue.push_back((subdir, depth + 1));
+                        }
+                    }
+                }
+
+                active_threads.fetch_sub(1, Ordering::AcqRel);
+            }
+
+            tx.send((local_results, had_error)).ok();
+        });
+        handles.push(handle);
+    }
+
+    drop(tx);
+
+    let mut all_results: Vec<PathBuf> = Vec::new();
+    let mut had_error = false;
+    for (results, thread_had_error) in rx {
+        all_results.extend(results);
+        if thread_had_error {
+            had_error = true;
+        }
+    }
+
+    for handle in handles {
+        if let Err(e) = handle.join() {
+            eprintln!("find: worker thread panicked: {:?}", e);
+            had_error = true;
+        }
+    }
+
+    all_results.sort();
+    for path in all_results {
+        println!("{}", path.display());
+    }
+
+    Ok(if had_error { 1 } else { 0 })
+}
+
+struct FindOptions {
+    name_pattern: Option<String>,
+    type_filter: Option<char>,
+    max_depth: Option<usize>,
+    empty_only: bool,
 }
 
 fn check_match(
