@@ -7,6 +7,10 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
 [![Size](https://img.shields.io/badge/size-optimized-green.svg)](target/release/idlebox)
+[![Build & Test](https://github.com/IamKenae/idlebox/actions/workflows/test.yml/badge.svg)](https://github.com/IamKenae/idlebox/actions/workflows/test.yml)
+[![Quality](https://github.com/IamKenae/idlebox/actions/workflows/quality.yml/badge.svg)](https://github.com/IamKenae/idlebox/actions/workflows/quality.yml)
+[![Portability](https://github.com/IamKenae/idlebox/actions/workflows/portability.yml/badge.svg)](https://github.com/IamKenae/idlebox/actions/workflows/portability.yml)
+[![Binary Size](https://github.com/IamKenae/idlebox/actions/workflows/size.yml/badge.svg)](https://github.com/IamKenae/idlebox/actions/workflows/size.yml)
 
 [🇬🇧 English](README.md)
 
@@ -150,6 +154,8 @@ ln -s idlebox ls
 ```bash
 cargo test
 ```
+
+GitHub Actions 将格式化/lint/文档、Linux/macOS/Windows 原生测试、跨目标可移植性和 Linux Release 体积预算拆分为独立工作流。
 
 ---
 

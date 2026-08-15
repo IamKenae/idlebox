@@ -3,7 +3,7 @@ use crate::core::unix_ffi::{raw_getgrnam, raw_getpwnam, raw_getpwuid};
 use crate::core::Applet;
 
 #[cfg(unix)]
-use std::ffi::CString;
+use std::ffi::{c_char, CString};
 #[cfg(unix)]
 use std::path::Path;
 
@@ -208,10 +208,10 @@ fn apply_chown(path: &str, uid: u32, gid: u32, recursive: bool) -> Result<(), st
 #[cfg(unix)]
 extern "C" {
     #[link_name = "chown"]
-    fn raw_chown(path: *const i8, owner: u32, group: u32) -> i32;
+    fn raw_chown(path: *const c_char, owner: u32, group: u32) -> i32;
 
     #[link_name = "lchown"]
-    fn raw_lchown(path: *const i8, owner: u32, group: u32) -> i32;
+    fn raw_lchown(path: *const c_char, owner: u32, group: u32) -> i32;
 }
 
 #[cfg(all(test, unix))]

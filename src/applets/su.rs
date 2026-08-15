@@ -3,7 +3,7 @@ use crate::core::unix_ffi::raw_getpwnam;
 use crate::core::Applet;
 
 #[cfg(unix)]
-use std::ffi::CString;
+use std::ffi::{c_char, CStr, CString};
 
 pub struct SuApplet;
 
@@ -203,7 +203,7 @@ impl Applet for SuApplet {
                 }
             }
 
-            let mut c_argv: Vec<*const i8> = exec_args.iter().map(|a| a.as_ptr()).collect();
+            let mut c_argv: Vec<*const c_char> = exec_args.iter().map(|a| a.as_ptr()).collect();
             c_argv.push(std::ptr::null());
 
             unsafe {
@@ -268,18 +268,11 @@ struct PasswdInfo {
 }
 
 #[cfg(unix)]
-fn c_char_to_string(ptr: *const i8) -> String {
+fn c_char_to_string(ptr: *const c_char) -> String {
     if ptr.is_null() {
         return String::new();
     }
-    let mut len = 0;
-    unsafe {
-        while *ptr.add(len) != 0 {
-            len += 1;
-        }
-        let slice = std::slice::from_raw_parts(ptr as *const u8, len);
-        String::from_utf8_lossy(slice).to_string()
-    }
+    unsafe { CStr::from_ptr(ptr).to_string_lossy().into_owned() }
 }
 
 #[cfg(unix)]
@@ -311,22 +304,22 @@ extern "C" {
     fn raw_setgid(gid: u32) -> i32;
 
     #[link_name = "initgroups"]
-    fn raw_initgroups(user: *const i8, group: u32) -> i32;
+    fn raw_initgroups(user: *const c_char, group: u32) -> i32;
 
     #[link_name = "setuid"]
     fn raw_setuid(uid: u32) -> i32;
 
     #[link_name = "execvp"]
-    fn raw_execvp(file: *const i8, argv: *const *const i8) -> i32;
+    fn raw_execvp(file: *const c_char, argv: *const *const c_char) -> i32;
 
     #[link_name = "waitpid"]
     fn raw_waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
 
     #[link_name = "setenv"]
-    fn raw_setenv(name: *const i8, value: *const i8, overwrite: i32) -> i32;
+    fn raw_setenv(name: *const c_char, value: *const c_char, overwrite: i32) -> i32;
 
     #[link_name = "chdir"]
-    fn raw_chdir(path: *const i8) -> i32;
+    fn raw_chdir(path: *const c_char) -> i32;
 
     #[link_name = "_exit"]
     fn raw__exit(status: i32) -> !;

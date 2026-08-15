@@ -2,6 +2,8 @@
 use crate::core::unix_ffi::{raw_getgrgid, raw_getpwnam, raw_getpwuid};
 use crate::core::Applet;
 #[cfg(unix)]
+use std::ffi::{c_char, CStr};
+#[cfg(unix)]
 use std::io::{self, Write};
 
 pub struct IdApplet;
@@ -216,18 +218,11 @@ struct PasswdInfo {
 }
 
 #[cfg(unix)]
-fn c_char_to_string(ptr: *const i8) -> String {
+fn c_char_to_string(ptr: *const c_char) -> String {
     if ptr.is_null() {
         return String::new();
     }
-    let mut len = 0;
-    unsafe {
-        while *ptr.add(len) != 0 {
-            len += 1;
-        }
-        let slice = std::slice::from_raw_parts(ptr as *const u8, len);
-        String::from_utf8_lossy(slice).to_string()
-    }
+    unsafe { CStr::from_ptr(ptr).to_string_lossy().into_owned() }
 }
 
 #[cfg(unix)]
@@ -408,11 +403,16 @@ extern "C" {
 
     #[cfg(not(target_os = "macos"))]
     #[link_name = "getgrouplist"]
-    fn raw_getgrouplist(user: *const i8, group: u32, groups: *mut i32, ngroups: *mut i32) -> i32;
+    fn raw_getgrouplist(
+        user: *const c_char,
+        group: u32,
+        groups: *mut i32,
+        ngroups: *mut i32,
+    ) -> i32;
 
     #[cfg(target_os = "macos")]
     #[link_name = "getgrouplist_2"]
-    fn raw_getgrouplist_2(user: *const i8, group: u32, groups: *mut *mut u32) -> i32;
+    fn raw_getgrouplist_2(user: *const c_char, group: u32, groups: *mut *mut u32) -> i32;
 
     #[cfg(target_os = "macos")]
     #[link_name = "free"]
