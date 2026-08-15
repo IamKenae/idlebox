@@ -206,7 +206,7 @@ fn find_parallel(
 
     let work_queue = Arc::new(Mutex::new(VecDeque::<(PathBuf, usize)>::new()));
     {
-                        let mut queue = work_queue.lock().unwrap_or_else(|e| e.into_inner());
+        let mut queue = work_queue.lock().unwrap_or_else(|e| e.into_inner());
         for path in paths {
             queue.push_back((PathBuf::from(path), 0));
         }
@@ -302,7 +302,7 @@ fn find_parallel(
                     subdirs.sort_unstable_by(|a, b| a.file_name().cmp(&b.file_name()));
 
                     {
-        let mut queue = work_queue.lock().unwrap_or_else(|e| e.into_inner());
+                        let mut queue = work_queue.lock().unwrap_or_else(|e| e.into_inner());
                         for subdir in subdirs {
                             queue.push_back((subdir, depth + 1));
                         }
