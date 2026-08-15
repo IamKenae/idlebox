@@ -1,3 +1,4 @@
+mod b3sum;
 mod basename;
 mod cat;
 mod chgrp;
@@ -55,6 +56,7 @@ mod wc;
 mod whoami;
 mod zcat;
 
+pub use b3sum::B3sumApplet;
 pub use basename::BasenameApplet;
 pub use cat::CatApplet;
 pub use chgrp::ChgrpApplet;

@@ -1,5 +1,5 @@
 use crate::applets::{
-    BasenameApplet, BracketApplet, CatApplet, ChgrpApplet, ChmodApplet, ChownApplet, CpApplet,
+    B3sumApplet, BasenameApplet, BracketApplet, CatApplet, ChgrpApplet, ChmodApplet, ChownApplet, CpApplet,
     CutApplet, DfApplet, DirnameApplet, DuApplet, EchoApplet, EnvApplet, ExprApplet, FalseApplet,
     FindApplet, FreeApplet, GrepApplet, GunzipApplet, GzipApplet, HeadApplet, IdApplet, KillApplet,
     LnApplet, LsApplet, Md5sumApplet, MkdirApplet, MvApplet, PrintenvApplet, PrintfApplet, PsApplet, PwdApplet,
@@ -51,6 +51,7 @@ impl AppletEntry {
 // Keep registration, listing, installation, and help policy in one place. Applets
 // whose `-h` flag has command-specific meaning only accept the long help flag.
 static APPLETS: &[AppletEntry] = &[
+    AppletEntry::new(&B3sumApplet, true),
     AppletEntry::new(&BasenameApplet, true),
     AppletEntry::new(&CatApplet, true),
     AppletEntry::new(&ChgrpApplet, true),
