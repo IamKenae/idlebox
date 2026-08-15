@@ -280,6 +280,7 @@ fn test_list_applets() {
     assert!(stdout.contains("test"));
     assert!(stdout.contains("touch"));
     assert!(stdout.contains("tr"));
+    assert!(stdout.contains("tree"));
     assert!(stdout.contains("true"));
     assert!(stdout.contains("uname"));
     assert!(stdout.contains("uniq"));
@@ -528,7 +529,7 @@ fn test_install_creates_launchers() {
     assert_command_success(&output, "installing applet launchers");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Installed:"));
-    assert!(stdout.contains("52 installed, 0 updated, 0 already installed"));
+    assert!(stdout.contains("53 installed, 0 updated, 0 already installed"));
     assert!(stdout.contains("Tip: add"));
 
     for applet in &[
@@ -536,7 +537,7 @@ fn test_install_creates_launchers() {
         "env", "expr", "false", "find", "free", "grep", "gunzip", "gzip", "head", "id", "kill",
         "ln", "ls", "mkdir", "mv", "ps", "printf", "printenv", "pwd", "readlink", "realpath",
         "relax", "rm", "sleep", "sort", "su", "tail", "tar", "tee", "test", "[", "touch", "tr",
-        "true", "uname", "uniq", "unzip", "uptime", "wc", "whoami", "zcat",
+        "tree", "true", "uname", "uniq", "unzip", "uptime", "wc", "whoami", "zcat",
     ] {
         let launcher = installed_applet_path(&tmp_dir, applet);
         assert!(launcher.exists(), "launcher for {} should exist", applet);
@@ -701,7 +702,7 @@ fn test_install_rerun_skips_current_launchers() {
     let second = run_install(&tmp_dir);
     assert_command_success(&second, "rerunning an installation");
     let stdout = String::from_utf8_lossy(&second.stdout);
-    assert!(stdout.contains("0 installed, 0 updated, 52 already installed"));
+    assert!(stdout.contains("0 installed, 0 updated, 53 already installed"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -4583,6 +4584,450 @@ fn test_unzip_rejects_parent_path_escape() {
         .unwrap();
     assert!(!output.status.success());
     assert!(!tmp_dir.join("escaped.txt").exists());
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+// -- tree ------------------------------------------------------------------
+
+/// Shared shape for the tree tests: 3 directories and 4 visible files, plus one
+/// hidden file that only `-a` reveals.
+///
+/// ```text
+/// root/
+///   .hidden.txt
+///   b.txt
+///   a_dir/
+///     nested.rs
+///     sub/
+///       deep.txt
+///   z_dir/
+///     x.md
+/// ```
+fn tree_fixture(name: &str) -> PathBuf {
+    let tmp_dir = std::env::temp_dir().join(format!("idlebox_test_tree_{}", name));
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(tmp_dir.join("a_dir").join("sub")).unwrap();
+    fs::create_dir_all(tmp_dir.join("z_dir")).unwrap();
+    fs::write(tmp_dir.join(".hidden.txt"), "hidden").unwrap();
+    fs::write(tmp_dir.join("b.txt"), "hello").unwrap();
+    fs::write(tmp_dir.join("a_dir").join("nested.rs"), "fn main() {}").unwrap();
+    fs::write(tmp_dir.join("a_dir").join("sub").join("deep.txt"), "deep").unwrap();
+    fs::write(tmp_dir.join("z_dir").join("x.md"), "# md").unwrap();
+    tmp_dir
+}
+
+fn run_tree(args: &[&str]) -> std::process::Output {
+    let mut command = idlebox_command();
+    command.arg("tree");
+    command.args(args);
+    command.output().expect("failed to execute process")
+}
+
+#[test]
+fn test_tree_basic() {
+    let tmp_dir = tree_fixture("basic");
+
+    let output = run_tree(&[tmp_dir.to_str().unwrap()]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("├──"));
+    assert!(stdout.contains("└──"));
+    assert!(stdout.contains("│"));
+    assert!(stdout.contains("a_dir"));
+    assert!(stdout.contains("nested.rs"));
+    assert!(stdout.contains("deep.txt"));
+    assert!(stdout.contains("x.md"));
+    assert!(!stdout.contains(".hidden.txt"));
+    assert!(stdout.contains("3 directories, 4 files"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_all_shows_hidden() {
+    let tmp_dir = tree_fixture("all");
+
+    let hidden = run_tree(&["-a", tmp_dir.to_str().unwrap()]);
+    assert!(hidden.status.success());
+    let stdout = String::from_utf8_lossy(&hidden.stdout);
+    assert!(stdout.contains(".hidden.txt"));
+    assert!(stdout.contains("3 directories, 5 files"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_max_depth() {
+    let tmp_dir = tree_fixture("depth");
+
+    let output = run_tree(&["-L", "1", tmp_dir.to_str().unwrap()]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("a_dir"));
+    assert!(stdout.contains("b.txt"));
+    assert!(!stdout.contains("nested.rs"));
+    assert!(!stdout.contains("deep.txt"));
+    assert!(stdout.contains("2 directories, 1 file"));
+
+    // Bundled short options are allowed as long as the value-taking one is last.
+    let bundled = run_tree(&["-aL", "1", tmp_dir.to_str().unwrap()]);
+    assert!(bundled.status.success());
+    assert!(String::from_utf8_lossy(&bundled.stdout).contains(".hidden.txt"));
+
+    let misplaced = run_tree(&["-La", "1", tmp_dir.to_str().unwrap()]);
+    assert_eq!(misplaced.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&misplaced.stderr).contains("must end the option group"));
+
+    let zero = run_tree(&["-L", "0", tmp_dir.to_str().unwrap()]);
+    assert_eq!(zero.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&zero.stderr).contains("must be greater than 0"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_dirs_only() {
+    let tmp_dir = tree_fixture("dirsonly");
+
+    let output = run_tree(&["-d", tmp_dir.to_str().unwrap()]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("a_dir"));
+    assert!(stdout.contains("sub"));
+    assert!(stdout.contains("z_dir"));
+    assert!(!stdout.contains("b.txt"));
+    assert!(!stdout.contains("nested.rs"));
+    assert!(stdout.contains("3 directories"));
+    assert!(!stdout.contains("files"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_patterns() {
+    let tmp_dir = tree_fixture("patterns");
+
+    // -P keeps directories so the tree still has a shape to hang files on.
+    let include = run_tree(&["-P", "*.rs", tmp_dir.to_str().unwrap()]);
+    assert!(include.status.success());
+    let stdout = String::from_utf8_lossy(&include.stdout);
+    assert!(stdout.contains("nested.rs"));
+    assert!(stdout.contains("a_dir"));
+    assert!(!stdout.contains("b.txt"));
+    assert!(!stdout.contains("x.md"));
+    assert!(stdout.contains("3 directories, 1 file"));
+
+    let exclude = run_tree(&["-I", "z_dir", tmp_dir.to_str().unwrap()]);
+    assert!(exclude.status.success());
+    let stdout = String::from_utf8_lossy(&exclude.stdout);
+    assert!(!stdout.contains("z_dir"));
+    assert!(!stdout.contains("x.md"));
+    assert!(stdout.contains("b.txt"));
+    assert!(stdout.contains("2 directories, 3 files"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_noindent_and_charset() {
+    let tmp_dir = tree_fixture("charset");
+
+    let plain = run_tree(&["-i", tmp_dir.to_str().unwrap()]);
+    assert!(plain.status.success());
+    let stdout = String::from_utf8_lossy(&plain.stdout);
+    assert!(!stdout.contains("├"));
+    assert!(!stdout.contains("│"));
+    assert!(stdout.contains("    nested.rs"));
+
+    let ascii = run_tree(&["--charset", "ASCII", tmp_dir.to_str().unwrap()]);
+    assert!(ascii.status.success());
+    let stdout = String::from_utf8_lossy(&ascii.stdout);
+    assert!(stdout.contains("|--"));
+    assert!(stdout.contains("`--"));
+    assert!(!stdout.contains("├"));
+
+    let utf8 = run_tree(&["--charset", "utf-8", tmp_dir.to_str().unwrap()]);
+    assert!(utf8.status.success());
+    assert!(String::from_utf8_lossy(&utf8.stdout).contains("├──"));
+
+    let bogus = run_tree(&["--charset", "BOGUS", tmp_dir.to_str().unwrap()]);
+    assert_eq!(bogus.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&bogus.stderr).contains("unsupported charset"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_sorting() {
+    let tmp_dir = tree_fixture("sorting");
+
+    let default = run_tree(&["-L", "1", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&default.stdout);
+    let a_dir = stdout.find("a_dir").unwrap();
+    let b_txt = stdout.find("b.txt").unwrap();
+    let z_dir = stdout.find("z_dir").unwrap();
+    assert!(a_dir < b_txt && b_txt < z_dir);
+
+    // --dirsfirst outranks the alphabetical order but not the reverse flag.
+    let dirs_first = run_tree(&["-L", "1", "--dirsfirst", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&dirs_first.stdout);
+    assert!(stdout.find("z_dir").unwrap() < stdout.find("b.txt").unwrap());
+
+    let reverse = run_tree(&["-L", "1", "-r", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&reverse.stdout);
+    assert!(stdout.find("z_dir").unwrap() < stdout.find("a_dir").unwrap());
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_time_sort() {
+    use std::time::{Duration, SystemTime};
+
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_timesort");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    // Names sort a < b < c, modification times sort c < b < a.
+    for (name, secs) in [("a.txt", 3_000), ("b.txt", 2_000), ("c.txt", 1_000)] {
+        let path = tmp_dir.join(name);
+        fs::write(&path, name).unwrap();
+        let file = fs::File::options().write(true).open(&path).unwrap();
+        file.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(secs))
+            .unwrap();
+    }
+
+    let output = run_tree(&["-t", tmp_dir.to_str().unwrap()]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.find("c.txt").unwrap() < stdout.find("b.txt").unwrap());
+    assert!(stdout.find("b.txt").unwrap() < stdout.find("a.txt").unwrap());
+
+    let reversed = run_tree(&["-t", "-r", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&reversed.stdout);
+    assert!(stdout.find("a.txt").unwrap() < stdout.find("b.txt").unwrap());
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_classify_and_size() {
+    let tmp_dir = tree_fixture("classify");
+
+    let classify = run_tree(&["-F", "-L", "1", tmp_dir.to_str().unwrap()]);
+    assert!(classify.status.success());
+    let stdout = String::from_utf8_lossy(&classify.stdout);
+    assert!(stdout.contains("a_dir/"));
+    assert!(stdout.contains("z_dir/"));
+
+    // b.txt holds "hello", so the byte column has to read 5.
+    let size = run_tree(&["-s", "-L", "1", tmp_dir.to_str().unwrap()]);
+    assert!(size.status.success());
+    let stdout = String::from_utf8_lossy(&size.stdout);
+    assert!(stdout.contains("5]  b.txt"));
+
+    let human = run_tree(&["-h", "-L", "1", tmp_dir.to_str().unwrap()]);
+    assert!(human.status.success());
+    assert!(String::from_utf8_lossy(&human.stdout).contains("5]  b.txt"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_tree_metadata_columns() {
+    let tmp_dir = tree_fixture("metadata");
+
+    let output = run_tree(&["-p", "-u", "-g", "-D", "-L", "1", tmp_dir.to_str().unwrap()]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("[drwx"));
+    assert!(stdout.contains("[-rw-"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_json() {
+    let tmp_dir = tree_fixture("json");
+
+    let output = run_tree(&["-J", tmp_dir.to_str().unwrap()]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with('['));
+    assert!(stdout.contains("{\"type\":\"directory\",\"name\":\"a_dir\",\"contents\":["));
+    assert!(stdout.contains("{\"type\":\"file\",\"name\":\"nested.rs\"}"));
+    assert!(stdout.contains("{\"type\":\"report\",\"directories\":3,\"files\":4}"));
+
+    let with_size = run_tree(&["-J", "-s", tmp_dir.to_str().unwrap()]);
+    assert!(String::from_utf8_lossy(&with_size.stdout).contains("\"name\":\"b.txt\",\"size\":5"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_tree_json_escapes_special_names() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_jsonescape");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    fs::write(tmp_dir.join("qu\"ote"), "x").unwrap();
+    fs::write(tmp_dir.join("back\\slash"), "x").unwrap();
+
+    let output = run_tree(&["-J", tmp_dir.to_str().unwrap()]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains(r#""name":"qu\"ote""#));
+    assert!(stdout.contains(r#""name":"back\\slash""#));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_xml() {
+    let tmp_dir = tree_fixture("xml");
+
+    let output = run_tree(&["-X", tmp_dir.to_str().unwrap()]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
+    assert!(stdout.contains("<directory name=\"a_dir\">"));
+    assert!(stdout.contains("<file name=\"nested.rs\"></file>"));
+    assert!(stdout.contains("<directories>3</directories>"));
+    assert!(stdout.contains("<files>4</files>"));
+    assert!(stdout.trim_end().ends_with("</tree>"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_tree_xml_escapes_special_names() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_xmlescape");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    fs::write(tmp_dir.join("a&b<c>"), "x").unwrap();
+
+    let output = run_tree(&["-X", tmp_dir.to_str().unwrap()]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("name=\"a&amp;b&lt;c&gt;\""));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_html() {
+    let tmp_dir = tree_fixture("html");
+
+    let output = run_tree(&["-H", "https://example.com/files", tmp_dir.to_str().unwrap()]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("<!DOCTYPE html>"));
+    assert!(stdout.contains("<html>"));
+    assert!(stdout.contains("<a href=\"https://example.com/files/a_dir\">a_dir</a>"));
+    assert!(stdout.contains("<a href=\"https://example.com/files/a_dir/nested.rs\">nested.rs</a>"));
+    assert!(stdout.contains("<p>3 directories, 4 files</p>"));
+    assert!(stdout.trim_end().ends_with("</html>"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_output_file() {
+    let tmp_dir = tree_fixture("outfile");
+    let out_file = tmp_dir.join("tree.txt");
+
+    let output = run_tree(&[
+        "-o",
+        out_file.to_str().unwrap(),
+        "-L",
+        "1",
+        tmp_dir.to_str().unwrap(),
+    ]);
+
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+    let written = fs::read_to_string(&out_file).unwrap();
+    assert!(written.contains("├──"));
+    assert!(written.contains("a_dir"));
+    assert!(written.contains("directories,"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_noreport() {
+    let tmp_dir = tree_fixture("noreport");
+
+    let output = run_tree(&["--noreport", tmp_dir.to_str().unwrap()]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("a_dir"));
+    assert!(!stdout.contains("directories,"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_nonexistent_path() {
+    let missing = std::env::temp_dir().join("idlebox_test_tree_missing");
+    let _ = fs::remove_dir_all(&missing);
+
+    let output = run_tree(&[missing.to_str().unwrap()]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("tree: "));
+}
+
+#[test]
+fn test_tree_invalid_option() {
+    let output = run_tree(&["-Z"]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("invalid option -- 'Z'"));
+}
+
+#[test]
+#[cfg(unix)]
+fn test_tree_symlink_is_shown_but_not_followed() {
+    let tmp_dir = tree_fixture("symlink");
+    std::os::unix::fs::symlink(tmp_dir.join("a_dir"), tmp_dir.join("dirlink")).unwrap();
+
+    let output = run_tree(&[tmp_dir.to_str().unwrap()]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("dirlink -> "));
+    // Following the link would list nested.rs a second time.
+    assert_eq!(stdout.matches("nested.rs").count(), 1);
+    // The link counts as a file, not as a directory.
+    assert!(stdout.contains("3 directories, 5 files"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_tree_reports_unreadable_directory() {
+    let tmp_dir = tree_fixture("denied");
+    let locked = tmp_dir.join("locked");
+    fs::create_dir_all(locked.join("inner")).unwrap();
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let output = run_tree(&[tmp_dir.to_str().unwrap()]);
+
+    // Restore before asserting so a failure still leaves a removable directory.
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("locked [error opening dir]"));
+    // Other branches keep being walked.
+    assert!(stdout.contains("nested.rs"));
+    assert!(stdout.contains("x.md"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }

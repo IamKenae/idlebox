@@ -4,8 +4,8 @@ use crate::applets::{
     FindApplet, FreeApplet, GrepApplet, GunzipApplet, GzipApplet, HeadApplet, IdApplet, KillApplet,
     LnApplet, LsApplet, MkdirApplet, MvApplet, PrintenvApplet, PrintfApplet, PsApplet, PwdApplet,
     ReadlinkApplet, RealpathApplet, RelaxApplet, RmApplet, SleepApplet, SortApplet, SuApplet,
-    TailApplet, TarApplet, TeeApplet, TestApplet, TouchApplet, TrApplet, TrueApplet, UnameApplet,
-    UniqApplet, UnzipApplet, UptimeApplet, WcApplet, WhoamiApplet, ZcatApplet,
+    TailApplet, TarApplet, TeeApplet, TestApplet, TouchApplet, TrApplet, TreeApplet, TrueApplet,
+    UnameApplet, UniqApplet, UnzipApplet, UptimeApplet, WcApplet, WhoamiApplet, ZcatApplet,
 };
 use crate::core::Applet;
 
@@ -95,6 +95,8 @@ static APPLETS: &[AppletEntry] = &[
     AppletEntry::new(&BracketApplet, false),
     AppletEntry::new(&TouchApplet, true),
     AppletEntry::new(&TrApplet, true),
+    // `-h` selects human-readable sizes, so only the long help flag is accepted.
+    AppletEntry::new(&TreeApplet, false),
     AppletEntry::new(&TrueApplet, true),
     AppletEntry::new(&UnameApplet, true),
     AppletEntry::new(&UniqApplet, true),
