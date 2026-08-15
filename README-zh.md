@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
-[![Linux x86_64 Release 体积](https://img.shields.io/badge/size-~735_KiB-green.svg)](https://github.com/IamKenae/idlebox/actions/workflows/size.yml)
+[![Linux x86_64 附件体积](https://img.shields.io/badge/size-~151_KB-green.svg)](https://github.com/IamKenae/idlebox/actions/workflows/test.yml)
 
 [🇬🇧 English](README.md)
 
