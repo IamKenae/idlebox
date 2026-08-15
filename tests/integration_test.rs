@@ -6048,9 +6048,17 @@ fn test_grep_parallel_matches_single_thread() {
         fs::write(&file, format!("line1\napple{}\nline3\nbanana\n", i)).unwrap();
     }
 
-    let files: Vec<String> = (0..10).map(|i| tmp_dir.join(format!("file{}.txt", i)).to_str().unwrap().to_string()).collect();
+    let files: Vec<String> = (0..10)
+        .map(|i| {
+            tmp_dir
+                .join(format!("file{}.txt", i))
+                .to_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
     let mut args = vec!["grep".to_string(), "apple".to_string()];
-    args.extend(files.iter().map(|s| s.clone()));
+    args.extend(files.iter().cloned());
 
     let output_single = idlebox_command()
         .args(&args)
@@ -6089,12 +6097,20 @@ fn test_grep_parallel_count_mode() {
 
     for i in 0..5 {
         let file = tmp_dir.join(format!("file{}.txt", i));
-        fs::write(&file, format!("apple\nbanana\napple\ncherry\n", )).unwrap();
+        fs::write(&file, "apple\nbanana\napple\ncherry\n").unwrap();
     }
 
-    let files: Vec<String> = (0..5).map(|i| tmp_dir.join(format!("file{}.txt", i)).to_str().unwrap().to_string()).collect();
+    let files: Vec<String> = (0..5)
+        .map(|i| {
+            tmp_dir
+                .join(format!("file{}.txt", i))
+                .to_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
     let mut args = vec!["grep".to_string(), "-c".to_string(), "apple".to_string()];
-    args.extend(files.iter().map(|s| s.clone()));
+    args.extend(files.iter().cloned());
 
     let output_single = idlebox_command()
         .args(&args)
@@ -6142,12 +6158,26 @@ fn test_find_parallel_matches_single_thread() {
     }
 
     let output_single = idlebox_command()
-        .args(["find", tmp_dir.to_str().unwrap(), "-name", "*.rs", "-j", "1"])
+        .args([
+            "find",
+            tmp_dir.to_str().unwrap(),
+            "-name",
+            "*.rs",
+            "-j",
+            "1",
+        ])
         .output()
         .expect("failed to execute process");
 
     let output_parallel = idlebox_command()
-        .args(["find", tmp_dir.to_str().unwrap(), "-name", "*.rs", "-j", "4"])
+        .args([
+            "find",
+            tmp_dir.to_str().unwrap(),
+            "-name",
+            "*.rs",
+            "-j",
+            "4",
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -6218,13 +6248,21 @@ fn test_wc_parallel_matches_single_thread() {
 
     for i in 0..8 {
         let file = tmp_dir.join(format!("file{}.txt", i));
-        let content = format!("line1 word1\nline2 word2 word3\nline3\n", );
+        let content = "line1 word1\nline2 word2 word3\nline3\n";
         fs::write(&file, content).unwrap();
     }
 
-    let files: Vec<String> = (0..8).map(|i| tmp_dir.join(format!("file{}.txt", i)).to_str().unwrap().to_string()).collect();
+    let files: Vec<String> = (0..8)
+        .map(|i| {
+            tmp_dir
+                .join(format!("file{}.txt", i))
+                .to_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
     let mut args = vec!["wc".to_string(), "-l".to_string()];
-    args.extend(files.iter().map(|s| s.clone()));
+    args.extend(files.iter().cloned());
 
     let output_single = idlebox_command()
         .args(&args)
@@ -6262,13 +6300,21 @@ fn test_wc_parallel_all_counts() {
 
     for i in 0..6 {
         let file = tmp_dir.join(format!("file{}.txt", i));
-        let content = format!("hello world\nfoo bar baz\ntest\n", );
+        let content = "hello world\nfoo bar baz\ntest\n";
         fs::write(&file, content).unwrap();
     }
 
-    let files: Vec<String> = (0..6).map(|i| tmp_dir.join(format!("file{}.txt", i)).to_str().unwrap().to_string()).collect();
+    let files: Vec<String> = (0..6)
+        .map(|i| {
+            tmp_dir
+                .join(format!("file{}.txt", i))
+                .to_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
     let mut args = vec!["wc".to_string()];
-    args.extend(files.iter().map(|s| s.clone()));
+    args.extend(files.iter().cloned());
 
     let output_single = idlebox_command()
         .args(&args)
@@ -6306,12 +6352,20 @@ fn test_grep_parallel_default_threads() {
 
     for i in 0..5 {
         let file = tmp_dir.join(format!("file{}.txt", i));
-        fs::write(&file, format!("apple\nbanana\napple\n", )).unwrap();
+        fs::write(&file, "apple\nbanana\napple\n").unwrap();
     }
 
-    let files: Vec<String> = (0..5).map(|i| tmp_dir.join(format!("file{}.txt", i)).to_str().unwrap().to_string()).collect();
+    let files: Vec<String> = (0..5)
+        .map(|i| {
+            tmp_dir
+                .join(format!("file{}.txt", i))
+                .to_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
     let mut args = vec!["grep".to_string(), "apple".to_string()];
-    args.extend(files.iter().map(|s| s.clone()));
+    args.extend(files.iter().cloned());
 
     let output = idlebox_command()
         .args(&args)
@@ -6365,9 +6419,17 @@ fn test_wc_parallel_default_threads() {
         fs::write(&file, "line1\nline2\nline3\n").unwrap();
     }
 
-    let files: Vec<String> = (0..4).map(|i| tmp_dir.join(format!("file{}.txt", i)).to_str().unwrap().to_string()).collect();
+    let files: Vec<String> = (0..4)
+        .map(|i| {
+            tmp_dir
+                .join(format!("file{}.txt", i))
+                .to_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
     let mut args = vec!["wc".to_string(), "-l".to_string()];
-    args.extend(files.iter().map(|s| s.clone()));
+    args.extend(files.iter().cloned());
 
     let output = idlebox_command()
         .args(&args)
