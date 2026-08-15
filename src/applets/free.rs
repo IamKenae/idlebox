@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{human_size, Applet};
 use std::io::{self, Write};
 
 pub struct FreeApplet;
@@ -310,17 +310,5 @@ fn get_windows_memory() -> Result<(u64, u64), io::Error> {
 }
 
 fn human_size_kb(kb: u64) -> String {
-    let bytes = kb * 1024;
-    const UNITS: &[&str] = &["B", "K", "M", "G", "T"];
-    let mut size = bytes as f64;
-    let mut idx = 0;
-    while size >= 1024.0 && idx < UNITS.len() - 1 {
-        size /= 1024.0;
-        idx += 1;
-    }
-    if idx == 0 {
-        format!("{}{}", bytes, UNITS[0])
-    } else {
-        format!("{:.1}{}", size, UNITS[idx])
-    }
+    human_size(kb.saturating_mul(1024), true, true)
 }

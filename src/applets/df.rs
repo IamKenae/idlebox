@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{human_size, rounded_percentage, Applet};
 use std::io::{self, Write};
 
 pub struct DfApplet;
@@ -396,14 +396,14 @@ fn print_statvfs_line(
     let free = stat.block_size * stat.blocks_free;
     let avail = stat.block_size * stat.blocks_avail;
     let used = total - free;
-    let use_pct = if total == 0 {
-        0.0
-    } else {
-        (used as f64 / (used as f64 + avail as f64)) * 100.0
-    };
+    let use_pct = rounded_percentage(used, used.saturating_add(avail));
 
     let (size_s, used_s, avail_s) = if human_readable {
-        (human_size(total), human_size(used), human_size(avail))
+        (
+            human_size(total, true, true),
+            human_size(used, true, true),
+            human_size(avail, true, true),
+        )
     } else {
         let block_total = total / 1024;
         let block_used = used / 1024;
@@ -417,7 +417,7 @@ fn print_statvfs_line(
 
     writeln!(
         out,
-        "{:<20} {:>10} {:>10} {:>10} {:>4.0}%  {}",
+        "{:<20} {:>10} {:>10} {:>10} {:>4}%  {}",
         device, size_s, used_s, avail_s, use_pct, mount_point
     )?;
     Ok(())
@@ -437,11 +437,11 @@ fn print_statfs_line(
         let used_kb: u64 = parts[1].parse().unwrap_or(0);
         let avail_kb: u64 = parts[2].parse().unwrap_or(0);
         let use_pct_str = parts[3].trim_end_matches('%');
-        let use_pct: f64 = use_pct_str.parse().unwrap_or(0.0);
+        let use_pct: u64 = use_pct_str.parse().unwrap_or(0);
 
         writeln!(
             out,
-            "{:<20} {:>10} {:>10} {:>10} {:>4.0}%  {}",
+            "{:<20} {:>10} {:>10} {:>10} {:>4}%  {}",
             device,
             format!("{}K", total_kb),
             format!("{}K", used_kb),
@@ -506,16 +506,12 @@ fn print_disk_line(
     human_readable: bool,
 ) -> Result<(), io::Error> {
     let used = info.total.saturating_sub(info.free);
-    let use_pct = if used + info.available == 0 {
-        0.0
-    } else {
-        used as f64 / (used + info.available) as f64 * 100.0
-    };
+    let use_pct = rounded_percentage(used, used.saturating_add(info.available));
     let (total, used, available) = if human_readable {
         (
-            human_size(info.total),
-            human_size(used),
-            human_size(info.available),
+            human_size(info.total, true, true),
+            human_size(used, true, true),
+            human_size(info.available, true, true),
         )
     } else {
         (
@@ -526,7 +522,7 @@ fn print_disk_line(
     };
     writeln!(
         out,
-        "{:<20} {:>10} {:>10} {:>10} {:>4.0}%  {}",
+        "{:<20} {:>10} {:>10} {:>10} {:>4}%  {}",
         mount_point, total, used, available, use_pct, mount_point
     )?;
     Ok(())
@@ -542,22 +538,6 @@ extern "system" {
         total_bytes: *mut u64,
         total_free_bytes: *mut u64,
     ) -> i32;
-}
-
-#[cfg(any(target_os = "linux", windows))]
-fn human_size(bytes: u64) -> String {
-    const UNITS: &[&str] = &["B", "K", "M", "G", "T", "P"];
-    let mut size = bytes as f64;
-    let mut idx = 0;
-    while size >= 1024.0 && idx < UNITS.len() - 1 {
-        size /= 1024.0;
-        idx += 1;
-    }
-    if idx == 0 {
-        format!("{}{}", bytes, UNITS[0])
-    } else {
-        format!("{:.1}{}", size, UNITS[idx])
-    }
 }
 
 #[cfg(all(test, target_os = "linux"))]

@@ -264,7 +264,7 @@ fn read_all_proc_entries(show_all: bool) -> Result<Vec<ProcEntry>, io::Error> {
         });
     }
 
-    entries.sort_by_key(|e| e.pid);
+    entries.sort_unstable_by_key(|e| e.pid);
     Ok(entries)
 }
 

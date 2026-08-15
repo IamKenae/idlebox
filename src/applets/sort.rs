@@ -73,11 +73,7 @@ impl Applet for SortApplet {
         }
 
         if numeric {
-            all_lines.sort_by(|a, b| {
-                let na: f64 = a.trim().parse().unwrap_or(0.0);
-                let nb: f64 = b.trim().parse().unwrap_or(0.0);
-                na.partial_cmp(&nb).unwrap_or(std::cmp::Ordering::Equal)
-            });
+            all_lines.sort_by(|a, b| numeric_cmp(a, b));
         } else {
             all_lines.sort();
         }
@@ -113,6 +109,100 @@ impl Applet for SortApplet {
     }
 }
 
+#[derive(Clone, Copy)]
+struct Decimal<'a> {
+    negative: bool,
+    integer: &'a [u8],
+    fraction: &'a [u8],
+}
+
+impl<'a> Decimal<'a> {
+    const ZERO: Self = Self {
+        negative: false,
+        integer: b"",
+        fraction: b"",
+    };
+
+    fn parse(value: &'a str) -> Option<Self> {
+        let mut bytes = value.trim().as_bytes();
+        let mut negative = false;
+        if let Some((&sign, rest)) = bytes.split_first() {
+            if sign == b'-' || sign == b'+' {
+                negative = sign == b'-';
+                bytes = rest;
+            }
+        }
+
+        let decimal = bytes.iter().position(|&byte| byte == b'.');
+        let (integer, fraction) = match decimal {
+            Some(index) => {
+                let fraction = &bytes[index + 1..];
+                if fraction.contains(&b'.') {
+                    return None;
+                }
+                (&bytes[..index], fraction)
+            }
+            None => (bytes, &b""[..]),
+        };
+
+        if (integer.is_empty() && fraction.is_empty())
+            || !integer.iter().chain(fraction).all(u8::is_ascii_digit)
+        {
+            return None;
+        }
+
+        let integer = integer
+            .iter()
+            .position(|&digit| digit != b'0')
+            .map_or(&integer[integer.len()..], |index| &integer[index..]);
+        let fraction_end = fraction
+            .iter()
+            .rposition(|&digit| digit != b'0')
+            .map_or(0, |index| index + 1);
+        let fraction = &fraction[..fraction_end];
+        if integer.is_empty() && fraction.is_empty() {
+            negative = false;
+        }
+
+        Some(Self {
+            negative,
+            integer,
+            fraction,
+        })
+    }
+
+    fn magnitude_cmp(self, other: Self) -> std::cmp::Ordering {
+        self.integer
+            .len()
+            .cmp(&other.integer.len())
+            .then_with(|| self.integer.cmp(other.integer))
+            .then_with(|| {
+                let digits = self.fraction.len().max(other.fraction.len());
+                (0..digits)
+                    .map(|index| {
+                        (
+                            self.fraction.get(index).copied().unwrap_or(b'0'),
+                            other.fraction.get(index).copied().unwrap_or(b'0'),
+                        )
+                    })
+                    .find_map(|(left, right)| (left != right).then(|| left.cmp(&right)))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    }
+}
+
+fn numeric_cmp(left: &str, right: &str) -> std::cmp::Ordering {
+    let left = Decimal::parse(left).unwrap_or(Decimal::ZERO);
+    let right = Decimal::parse(right).unwrap_or(Decimal::ZERO);
+
+    match (left.negative, right.negative) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        (true, true) => right.magnitude_cmp(left),
+        (false, false) => left.magnitude_cmp(right),
+    }
+}
+
 impl SortApplet {
     fn read_file(path: &str) -> io::Result<Vec<String>> {
         let file = File::open(path)?;
@@ -124,5 +214,21 @@ impl SortApplet {
         let stdin = io::stdin();
         let reader = BufReader::new(stdin.lock());
         reader.lines().collect::<io::Result<Vec<_>>>()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::numeric_cmp;
+    use std::cmp::Ordering;
+
+    #[test]
+    fn compares_decimal_numbers_without_float_conversion() {
+        assert_eq!(numeric_cmp("-10", "-2"), Ordering::Less);
+        assert_eq!(numeric_cmp("1.02", "1.2"), Ordering::Less);
+        assert_eq!(numeric_cmp("001.200", "+1.2"), Ordering::Equal);
+        assert_eq!(numeric_cmp(".5", "0.50"), Ordering::Equal);
+        assert_eq!(numeric_cmp("999999999999999999999", "2"), Ordering::Greater);
+        assert_eq!(numeric_cmp("not-a-number", "0"), Ordering::Equal);
     }
 }
