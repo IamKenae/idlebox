@@ -4633,6 +4633,32 @@ fn run_tree_in(dir: &Path, args: &[&str]) -> std::process::Output {
     command.output().expect("failed to execute process")
 }
 
+/// A listing with the root line dropped, so an assertion about which entries
+/// were listed cannot be answered by the root path instead.
+///
+/// The fixtures live under the system temporary directory, which on macOS is
+/// `/var/folders/<hash>/<hash>/T` — and "f-old-ers" already contains one of the
+/// names the pattern tests search for.
+fn tree_entries(output: &std::process::Output) -> String {
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .skip(1)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Creates a file whose name is not valid UTF-8, reporting whether the
+/// filesystem accepted it. A Unix file name is a byte string, but macOS
+/// enforces UTF-8 on APFS and rejects the name outright with `EILSEQ`, so
+/// there is nothing for the raw-byte tests to observe there.
+#[cfg(unix)]
+fn write_non_utf8_named_file(dir: &Path, name: &[u8]) -> bool {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    fs::write(dir.join(OsStr::from_bytes(name)), "x").is_ok()
+}
+
 /// The account name and group name the fixtures will be owned by, resolved the
 /// same way `tree` resolves them so the metadata columns can be matched exactly.
 #[cfg(unix)]
@@ -5107,11 +5133,27 @@ fn test_tree_keeps_multibyte_names_in_markup() {
     fs::write(tmp_dir.join("café.txt"), "x").unwrap();
     fs::write(tmp_dir.join("日本語.md"), "x").unwrap();
 
+    // Read the names back instead of reusing the literals: macOS stores them
+    // decomposed, so `café` comes back as `cafe` plus a combining accent. What
+    // matters is that `tree` reproduces whatever the filesystem actually holds.
+    let mut stored: Vec<String> = fs::read_dir(&tmp_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    stored.sort();
+    assert_eq!(stored.len(), 2, "fixture did not land: {:?}", stored);
+
     let xml = run_tree(&["-X", tmp_dir.to_str().unwrap()]);
     assert!(xml.status.success());
     let stdout = String::from_utf8_lossy(&xml.stdout);
-    assert!(stdout.contains("name=\"café.txt\""), "got {}", stdout);
-    assert!(stdout.contains("name=\"日本語.md\""), "got {}", stdout);
+    for name in &stored {
+        assert!(
+            stdout.contains(&format!("name=\"{}\"", name)),
+            "{} is missing from {}",
+            name,
+            stdout
+        );
+    }
     // Nothing in a name was substituted; the only `?` belongs to the `<?xml` declaration.
     assert!(
         !stdout
@@ -5123,8 +5165,14 @@ fn test_tree_keeps_multibyte_names_in_markup() {
 
     let html = run_tree(&["-H", "https://example.com/f", tmp_dir.to_str().unwrap()]);
     let stdout = String::from_utf8_lossy(&html.stdout);
-    assert!(stdout.contains(">café.txt</a>"), "got {}", stdout);
-    assert!(stdout.contains(">日本語.md</a>"), "got {}", stdout);
+    for name in &stored {
+        assert!(
+            stdout.contains(&format!(">{}</a>", name)),
+            "{} is missing from {}",
+            name,
+            stdout
+        );
+    }
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -5701,14 +5749,16 @@ fn test_tree_machine_report_omits_files_with_dirs_only() {
 #[test]
 #[cfg(unix)]
 fn test_tree_preserves_non_utf8_names() {
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
-
     let raw: &[u8] = &[b'b', b'a', b'd', 0xff];
     let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_rawbytes");
     let _ = fs::remove_dir_all(&tmp_dir);
     fs::create_dir_all(&tmp_dir).unwrap();
-    fs::write(tmp_dir.join(OsStr::from_bytes(raw)), "x").unwrap();
+    if !write_non_utf8_named_file(&tmp_dir, raw) {
+        // The filesystem enforces UTF-8 names, so it cannot hold the case this
+        // test is about. macOS is the one in CI that does.
+        let _ = fs::remove_dir_all(&tmp_dir);
+        return;
+    }
 
     let text = run_tree(&[tmp_dir.to_str().unwrap()]);
     assert!(text.status.success());
@@ -5770,14 +5820,14 @@ fn test_tree_xml_neutralizes_control_characters() {
 #[test]
 #[cfg(unix)]
 fn test_tree_xml_neutralizes_bytes_that_are_not_utf8() {
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
-
     let raw: &[u8] = &[b'b', b'a', b'd', 0xff];
     let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_xmlrawbytes");
     let _ = fs::remove_dir_all(&tmp_dir);
     fs::create_dir_all(&tmp_dir).unwrap();
-    fs::write(tmp_dir.join(OsStr::from_bytes(raw)), "x").unwrap();
+    if !write_non_utf8_named_file(&tmp_dir, raw) {
+        let _ = fs::remove_dir_all(&tmp_dir);
+        return;
+    }
 
     let xml = run_tree(&["-X", tmp_dir.to_str().unwrap()]);
     assert!(xml.status.success());
@@ -5830,10 +5880,11 @@ fn test_tree_json_omits_contents_for_empty_directory() {
         stdout
     );
 
-    // An empty root has nothing to hang a `contents` on either.
+    // An empty root has nothing to hang a `contents` on either. Match the JSON
+    // key rather than the bare word, which the root path could also spell.
     let root = run_tree(&["-J", tmp_dir.join("empty_dir").to_str().unwrap()]);
     let stdout = String::from_utf8_lossy(&root.stdout);
-    assert!(!stdout.contains("contents"), "got {}", stdout);
+    assert!(!stdout.contains("\"contents\""), "got {}", stdout);
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -5855,9 +5906,13 @@ fn test_tree_pattern_does_not_hang() {
         tmp_dir.to_str().unwrap(),
     ]);
     assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(!stdout.contains("aaaa"), "got {}", stdout);
-    assert!(stdout.contains("1 directory, 0 files"), "got {}", stdout);
+    let entries = tree_entries(&output);
+    assert!(!entries.contains("aaaa"), "got {}", entries);
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("1 directory, 0 files"),
+        "got {}",
+        entries
+    );
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -5876,46 +5931,46 @@ fn test_tree_pattern_sets_and_syntax() {
     // Repeated -P keeps both patterns instead of letting the last one win.
     let repeated = run_tree(&["-P", "old", "-P", "new", tmp_dir.to_str().unwrap()]);
     assert!(repeated.status.success());
-    let stdout = String::from_utf8_lossy(&repeated.stdout);
-    assert!(stdout.contains("old"), "got {}", stdout);
-    assert!(stdout.contains("new"), "got {}", stdout);
-    assert!(!stdout.contains("other"));
+    let entries = tree_entries(&repeated);
+    assert!(entries.contains("old"), "got {}", entries);
+    assert!(entries.contains("new"), "got {}", entries);
+    assert!(!entries.contains("other"));
 
     // A single pattern can hold the alternation instead.
     let alternation = run_tree(&["-P", "old|new", tmp_dir.to_str().unwrap()]);
-    let stdout = String::from_utf8_lossy(&alternation.stdout);
+    let entries = tree_entries(&alternation);
     assert!(
-        stdout.contains("old") && stdout.contains("new"),
+        entries.contains("old") && entries.contains("new"),
         "got {}",
-        stdout
+        entries
     );
-    assert!(!stdout.contains("other"));
+    assert!(!entries.contains("other"));
 
     // Character classes, ranges and negation.
     let class = run_tree(&["-P", "[ab].*", tmp_dir.to_str().unwrap()]);
-    let stdout = String::from_utf8_lossy(&class.stdout);
+    let entries = tree_entries(&class);
     assert!(
-        stdout.contains("a.rs") && stdout.contains("b.md"),
+        entries.contains("a.rs") && entries.contains("b.md"),
         "got {}",
-        stdout
+        entries
     );
-    assert!(!stdout.contains("c.txt"));
+    assert!(!entries.contains("c.txt"));
 
     let negated = run_tree(&["-P", "[^ab]*", tmp_dir.to_str().unwrap()]);
-    let stdout = String::from_utf8_lossy(&negated.stdout);
+    let entries = tree_entries(&negated);
     assert!(
-        stdout.contains("c.txt") && stdout.contains("old"),
+        entries.contains("c.txt") && entries.contains("old"),
         "got {}",
-        stdout
+        entries
     );
-    assert!(!stdout.contains("a.rs"));
+    assert!(!entries.contains("a.rs"));
 
     // Repeated -I removes both, and -I takes the same syntax.
     let excluded = run_tree(&["-I", "old", "-I", "*.md", tmp_dir.to_str().unwrap()]);
-    let stdout = String::from_utf8_lossy(&excluded.stdout);
-    assert!(!stdout.contains("old"));
-    assert!(!stdout.contains("b.md"));
-    assert!(stdout.contains("new") && stdout.contains("a.rs"));
+    let entries = tree_entries(&excluded);
+    assert!(!entries.contains("old"), "got {}", entries);
+    assert!(!entries.contains("b.md"));
+    assert!(entries.contains("new") && entries.contains("a.rs"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
