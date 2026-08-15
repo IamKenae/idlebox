@@ -139,7 +139,7 @@ impl Applet for GrepApplet {
         let mut had_error = false;
         let mut total_matches = 0usize;
 
-        if files.len() == 1 || files.iter().any(|f| *f == "-") || num_threads <= 1 {
+        if files.len() == 1 || files.contains(&"-") || num_threads <= 1 {
             for file in &files {
                 let result = if *file == "-" {
                     Self::grep_stdin(&mut out, &options, file)
@@ -291,11 +291,12 @@ impl GrepApplet {
         Ok(match_count)
     }
 
+    #[allow(clippy::type_complexity)]
     fn grep_parallel(
         files: &[&str],
         options: &GrepOptions<'_>,
         num_threads: usize,
-    ) -> Vec<(String, Result<(usize, Vec<String>), io::Error>)> {
+    ) -> Vec<GrepParallelResult> {
         let options = Arc::new(ParallelGrepOptions {
             pattern: options.pattern.to_string(),
             ignore_case: options.ignore_case,
@@ -319,22 +320,20 @@ impl GrepApplet {
             let files_arc = Arc::clone(&files_arc);
             let tx = tx.clone();
 
-            let handle = thread::spawn(move || {
-                loop {
-                    let idx = {
-                        let mut guard = file_indices.lock().unwrap();
-                        guard.next()
-                    };
+            let handle = thread::spawn(move || loop {
+                let idx = {
+                    let mut guard = file_indices.lock().unwrap();
+                    guard.next()
+                };
 
-                    let idx = match idx {
-                        Some(i) => i,
-                        None => break,
-                    };
+                let idx = match idx {
+                    Some(i) => i,
+                    None => break,
+                };
 
-                    let file = &files_arc[idx];
-                    let result = Self::grep_file_to_strings(file, &options);
-                    tx.send((idx, file.clone(), result)).ok();
-                }
+                let file = &files_arc[idx];
+                let result = Self::grep_file_to_strings(file, &options);
+                tx.send((idx, file.clone(), result)).ok();
             });
             handles.push(handle);
         }
@@ -419,3 +418,5 @@ struct ParallelGrepOptions {
     count_only: bool,
     multiple: bool,
 }
+
+type GrepParallelResult = (String, Result<(usize, Vec<String>), io::Error>);
