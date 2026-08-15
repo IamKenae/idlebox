@@ -114,6 +114,7 @@ impl Applet for FindApplet {
                     0,
                 )?;
             }
+            Ok(0)
         } else {
             find_parallel(
                 &paths,
@@ -122,10 +123,8 @@ impl Applet for FindApplet {
                 &max_depth,
                 empty_only,
                 num_threads,
-            )?;
+            )
         }
-
-        Ok(0)
     }
 
     fn help(&self) {
@@ -197,7 +196,7 @@ fn find_parallel(
     max_depth: &Option<usize>,
     empty_only: bool,
     num_threads: usize,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<i32, Box<dyn std::error::Error>> {
     let options = Arc::new(FindOptions {
         name_pattern: name_pattern.clone(),
         type_filter: *type_filter,
@@ -213,7 +212,7 @@ fn find_parallel(
         }
     }
 
-    let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
+    let (tx, rx) = mpsc::channel::<(Vec<PathBuf>, bool)>();
     let active_threads = Arc::new(AtomicUsize::new(0));
 
     let mut handles = Vec::new();
@@ -225,6 +224,7 @@ fn find_parallel(
 
         let handle = thread::spawn(move || {
             let mut local_results = Vec::new();
+            let mut had_error = false;
 
             loop {
                 let (path, depth) = {
@@ -252,6 +252,7 @@ fn find_parallel(
                     Ok(m) => m,
                     Err(e) => {
                         eprintln!("find: {}: {}", path.display(), e);
+                        had_error = true;
                         active_threads.fetch_sub(1, Ordering::SeqCst);
                         continue;
                     }
@@ -267,6 +268,7 @@ fn find_parallel(
                     Ok(m) => m,
                     Err(e) => {
                         eprintln!("find: {}: {}", path.display(), e);
+                        had_error = true;
                         active_threads.fetch_sub(1, Ordering::SeqCst);
                         continue;
                     }
@@ -281,6 +283,7 @@ fn find_parallel(
                         Ok(e) => e,
                         Err(e) => {
                             eprintln!("find: {}: {}", path.display(), e);
+                            had_error = true;
                             active_threads.fetch_sub(1, Ordering::SeqCst);
                             continue;
                         }
@@ -290,7 +293,10 @@ fn find_parallel(
                     for entry in entries {
                         match entry {
                             Ok(e) => subdirs.push(e.path()),
-                            Err(e) => eprintln!("find: {}", e),
+                            Err(e) => {
+                                eprintln!("find: {}", e);
+                                had_error = true;
+                            }
                         }
                     }
                     subdirs.sort_unstable_by(|a, b| a.file_name().cmp(&b.file_name()));
@@ -306,7 +312,7 @@ fn find_parallel(
                 active_threads.fetch_sub(1, Ordering::SeqCst);
             }
 
-            tx.send(local_results).ok();
+            tx.send((local_results, had_error)).ok();
         });
         handles.push(handle);
     }
@@ -314,13 +320,18 @@ fn find_parallel(
     drop(tx);
 
     let mut all_results: Vec<PathBuf> = Vec::new();
-    for results in rx {
+    let mut had_error = false;
+    for (results, thread_had_error) in rx {
         all_results.extend(results);
+        if thread_had_error {
+            had_error = true;
+        }
     }
 
     for handle in handles {
         if let Err(e) = handle.join() {
             eprintln!("find: worker thread panicked: {:?}", e);
+            had_error = true;
         }
     }
 
@@ -329,7 +340,7 @@ fn find_parallel(
         println!("{}", path.display());
     }
 
-    Ok(())
+    Ok(if had_error { 1 } else { 0 })
 }
 
 struct FindOptions {
