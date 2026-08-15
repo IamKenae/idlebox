@@ -109,6 +109,7 @@ impl Applet for ChownApplet {
     }
 }
 
+#[cfg(unix)]
 impl ChownApplet {
     fn print_usage(&self) {
         eprintln!("{}", banner());

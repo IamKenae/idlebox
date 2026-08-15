@@ -111,6 +111,7 @@ impl Applet for ChmodApplet {
     }
 }
 
+#[cfg(unix)]
 impl ChmodApplet {
     fn print_usage(&self) {
         eprintln!("{}", banner());
