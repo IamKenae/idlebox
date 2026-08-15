@@ -2,6 +2,8 @@ mod applets;
 mod core;
 
 use std::env;
+use std::error::Error;
+use std::io;
 use std::path::Path;
 use std::process;
 
@@ -135,10 +137,27 @@ fn main() {
     match dispatcher.dispatch(applet_name, applet_args) {
         Ok(exit_code) => process::exit(exit_code),
         Err(error) => {
+            if is_broken_pipe(error.as_ref()) {
+                process::exit(0);
+            }
             eprintln!("{}", error);
             process::exit(1);
         }
     }
+}
+
+fn is_broken_pipe(error: &(dyn Error + 'static)) -> bool {
+    let mut current = Some(error);
+    while let Some(cause) = current {
+        if cause
+            .downcast_ref::<io::Error>()
+            .is_some_and(|error| error.kind() == io::ErrorKind::BrokenPipe)
+        {
+            return true;
+        }
+        current = cause.source();
+    }
+    false
 }
 
 fn strip_exe_suffix(name: &str) -> &str {
@@ -190,7 +209,8 @@ fn print_list_usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::strip_exe_suffix;
+    use super::{is_broken_pipe, strip_exe_suffix};
+    use std::io;
 
     #[test]
     fn strips_exe_suffix_case_insensitively() {
@@ -198,5 +218,11 @@ mod tests {
         assert_eq!(strip_exe_suffix("idlebox.EXE"), "idlebox");
         assert_eq!(strip_exe_suffix("idlebox"), "idlebox");
         assert_eq!(strip_exe_suffix("盒.exe"), "盒");
+    }
+
+    #[test]
+    fn recognizes_broken_pipe_errors() {
+        let error = io::Error::new(io::ErrorKind::BrokenPipe, "closed pipe");
+        assert!(is_broken_pipe(&error));
     }
 }

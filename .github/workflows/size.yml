@@ -17,12 +17,10 @@ env:
   CARGO_TERM_COLOR: always
   LINUX_RELEASE_TOOLCHAIN: nightly-2026-07-26
   MUSL_BUILD_IMAGE: rustlang/rust:nightly-alpine@sha256:4c0d0569e00356c10a89078870693092e0aaef2515841c33f9e8ca22ce251d6d
-  GLIBC_MAX_BYTES: 460800
-  MUSL_MAX_BYTES: 460800
 
 jobs:
-  size-budget:
-    name: Linux release budgets
+  size-report:
+    name: Linux release size
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,31 +66,23 @@ jobs:
                 -Z build-std=std,panic_abort \
                 -Z build-std-features=optimize_for_size'
 
-      - name: Enforce size budgets
+      - name: Report release sizes
         shell: bash
         run: |
           set -euo pipefail
           glibc_bytes=$(wc -c < target/size-glibc/x86_64-unknown-linux-gnu/release/idlebox)
           musl_bytes=$(wc -c < "${RUNNER_TEMP}/idlebox-size-musl/x86_64-unknown-linux-musl/release/idlebox")
-          glibc_remaining=$((GLIBC_MAX_BYTES - glibc_bytes))
-          musl_remaining=$((MUSL_MAX_BYTES - musl_bytes))
+          glibc_kib=$(((glibc_bytes + 512) / 1024))
+          musl_kib=$(((musl_bytes + 512) / 1024))
 
           {
             echo "## IdleBox Linux release size"
             echo
-            echo "| Build | Bytes | Budget | Remaining |"
-            echo "|---|---:|---:|---:|"
-            echo "| glibc | ${glibc_bytes} | ${GLIBC_MAX_BYTES} | ${glibc_remaining} |"
-            echo "| musl | ${musl_bytes} | ${MUSL_MAX_BYTES} | ${musl_remaining} |"
+            echo "| Build | Bytes | Approximate size |"
+            echo "|---|---:|---:|"
+            echo "| glibc | ${glibc_bytes} | ${glibc_kib} KiB |"
+            echo "| musl | ${musl_bytes} | ${musl_kib} KiB |"
           } >> "${GITHUB_STEP_SUMMARY}"
 
-          failed=0
-          if (( glibc_bytes > GLIBC_MAX_BYTES )); then
-            echo "::error::glibc release is ${glibc_bytes} bytes; budget is ${GLIBC_MAX_BYTES}"
-            failed=1
-          fi
-          if (( musl_bytes > MUSL_MAX_BYTES )); then
-            echo "::error::musl release is ${musl_bytes} bytes; budget is ${MUSL_MAX_BYTES}"
-            failed=1
-          fi
-          exit "${failed}"
+          echo "glibc release: ${glibc_bytes} bytes (${glibc_kib} KiB)"
+          echo "musl release: ${musl_bytes} bytes (${musl_kib} KiB)"

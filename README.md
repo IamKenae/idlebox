@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
-[![Linux x86_64 ELF size](https://img.shields.io/badge/size-~326_KiB-green.svg)](https://github.com/IamKenae/idlebox/actions/workflows/size.yml)
+[![Linux x86_64 ELF size](https://img.shields.io/badge/size-~435_KiB-green.svg)](https://github.com/IamKenae/idlebox/actions/workflows/size.yml)
 
 [🇨🇳 中文文档](README-zh.md)
 
@@ -51,9 +51,9 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 
 | Platform | Status | Notes |
 |----------|--------|-------|
-| Linux | Full | All 36 applets supported |
-| macOS | Full | All 36 applets supported |
-| Windows | Partial | 20+ applets fully supported; Unix-only applets (chmod, chown, chgrp, id, su) gracefully degrade |
+| Linux | Full | All 47 applets supported |
+| macOS | Full | All 47 applets supported |
+| Windows | Partial | 30+ applets fully supported; Unix-only applets (chmod, chown, chgrp, id, su) gracefully degrade |
 
 ---
 
@@ -62,6 +62,13 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 | Applet | Description | Highlights |
 |--------|-------------|------------|
 | `echo` | Print text to standard output | Supports `-n` (no newline), streams arguments without assembling a second full output string |
+| `printf` | Format and print arguments | Reusable formats, backslash escapes, `%s`/`%b`/`%c`, integer and floating-point conversions, width and precision |
+| `true` / `false` | Return a fixed exit status | Script-friendly success and failure primitives with no output |
+| `env` | Run a command in a modified environment | `-i` clean environment, `-u` removal, temporary `NAME=VALUE` assignments, command execution |
+| `printenv` | Print environment variables | Prints the whole environment or selected variables, with optional NUL separators |
+| `pwd` | Print the current working directory | `-L` logical path and `-P` physical path resolution |
+| `basename` | Strip directories and suffixes from names | Optional suffix removal, multiple operands with `-a`/`-s`, NUL-separated output |
+| `dirname` | Strip the last component from names | Multiple operands and NUL-separated output |
 | `cat` | Concatenate files and print to standard output | Supports `-n` line numbers, `-b` non-blank numbering, `-A` show invisibles, stdin pipe |
 | `ls` | List directory contents | **ANSI colorized output**: dirs in blue, executables in green, archives in red, symlinks in cyan; supports `-l` long format, `-a` hidden files, `-h` human-readable sizes |
 | `mkdir` | Create directories | Supports `-p` for nested creation, multiple directories in one call |
@@ -83,6 +90,9 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 | `uptime` | Tell how long the system has been running | Parses `/proc/uptime` + `/proc/loadavg`, shows uptime and 1/5/15 min load average |
 | `ln` | Create links between files | `-s` symbolic links, `-f` force overwrite, hard links by default, multi-target to directory |
 | `readlink` | Print resolved symbolic links | `-f`/`-e` canonicalize to absolute path, `-n` no trailing newline |
+| `realpath` | Print canonical absolute paths | Existing-path canonicalization, quiet diagnostics, NUL-separated output |
+| `sleep` | Pause for a specified duration | Fractional values, `s`/`m`/`h`/`d` suffixes, sums multiple intervals |
+| `tee` | Copy stdin to files and stdout | Multiple output files, `-a` append, `-i` ignore interrupts, continues file output after a closed pipe |
 | `uname` | Print system information | POSIX `uname()` FFI, `-a` all, `-s`/`-n`/`-r`/`-v`/`-m` individual fields |
 | `test` / `[` | Evaluate conditional expressions | POSIX-compatible `test` and `[` forms, file/string/numeric tests, logical operators |
 | `expr` | Evaluate expressions and print result | Arithmetic, comparison, logical, string ops; recursive descent parser |
@@ -122,6 +132,8 @@ ls -lh target/release/idlebox
 ```bash
 # Direct invocation
 idlebox echo "Hello, IdleBox!"
+idlebox printf '%s = %04d\n' answer 42
+idlebox env MODE=demo idlebox printenv MODE
 idlebox cat -n README.md
 idlebox ls --color=auto -lah
 
@@ -151,7 +163,7 @@ ln -s idlebox ls
 cargo test
 ```
 
-GitHub Actions separates formatting/lint/docs, native Linux/macOS/Windows tests, cross-target portability, and Linux release-size budgets into independent workflows.
+GitHub Actions separates formatting/lint/docs, native Linux/macOS/Windows tests, cross-target portability, and Linux release-size measurements into independent workflows.
 
 ---
 
