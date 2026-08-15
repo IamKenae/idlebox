@@ -344,7 +344,9 @@ impl GrepApplet {
             rx.iter().collect();
 
         for handle in handles {
-            handle.join().ok();
+            if let Err(e) = handle.join() {
+                eprintln!("grep: worker thread panicked: {:?}", e);
+            }
         }
 
         results.sort_by_key(|(idx, _, _)| *idx);

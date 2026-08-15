@@ -6443,3 +6443,189 @@ fn test_wc_parallel_default_threads() {
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
+
+#[test]
+fn test_grep_parallel_with_ignore_case() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_grep_parallel_icase");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    for i in 0..5 {
+        let file = tmp_dir.join(format!("file{}.txt", i));
+        fs::write(&file, "Error\nerror\nERROR\nwarning\n").unwrap();
+    }
+
+    let files: Vec<String> = (0..5)
+        .map(|i| {
+            tmp_dir
+                .join(format!("file{}.txt", i))
+                .to_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+    let mut args = vec!["grep".to_string(), "-i".to_string(), "error".to_string()];
+    args.extend(files.iter().cloned());
+
+    let output_single = idlebox_command()
+        .args(&args)
+        .args(["-j", "1"])
+        .output()
+        .expect("failed to execute process");
+
+    let output_parallel = idlebox_command()
+        .args(&args)
+        .args(["-j", "4"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output_single.status.success());
+    assert!(output_parallel.status.success());
+
+    let stdout_single = String::from_utf8_lossy(&output_single.stdout);
+    let stdout_parallel = String::from_utf8_lossy(&output_parallel.stdout);
+
+    let mut lines_single: Vec<&str> = stdout_single.trim().lines().collect();
+    let mut lines_parallel: Vec<&str> = stdout_parallel.trim().lines().collect();
+    lines_single.sort();
+    lines_parallel.sort();
+
+    assert_eq!(lines_single, lines_parallel);
+    assert_eq!(lines_single.len(), 15); // 3 matches per file * 5 files
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_grep_invalid_thread_count_zero() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_grep_j0");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "test\n").unwrap();
+
+    let output = idlebox_command()
+        .args(["grep", "-j", "0", "test", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid thread count"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_grep_missing_thread_count() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_grep_j_missing");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "test\n").unwrap();
+
+    let output = idlebox_command()
+        .args(["grep", "-j", "test", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid thread count"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_find_invalid_thread_count_zero() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_find_j0");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let output = idlebox_command()
+        .args(["find", tmp_dir.to_str().unwrap(), "-j", "0"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid thread count"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_wc_invalid_thread_count_zero() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_wc_j0");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "test\n").unwrap();
+
+    let output = idlebox_command()
+        .args(["wc", "-j", "0", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("invalid thread count"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_parallel_large_thread_count() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_parallel_large_j");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    for i in 0..3 {
+        let file = tmp_dir.join(format!("file{}.txt", i));
+        fs::write(&file, "apple\nbanana\n").unwrap();
+    }
+
+    let files: Vec<String> = (0..3)
+        .map(|i| {
+            tmp_dir
+                .join(format!("file{}.txt", i))
+                .to_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+
+    // Test grep with very large thread count (should work, capped at file count)
+    let mut args = vec!["grep".to_string(), "apple".to_string()];
+    args.extend(files.iter().cloned());
+    let output = idlebox_command()
+        .args(&args)
+        .args(["-j", "999"])
+        .output()
+        .expect("failed to execute process");
+    assert!(output.status.success());
+
+    // Test find with very large thread count
+    let output = idlebox_command()
+        .args(["find", tmp_dir.to_str().unwrap(), "-type", "f", "-j", "999"])
+        .output()
+        .expect("failed to execute process");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim().lines().count(), 3);
+
+    // Test wc with very large thread count
+    let mut args = vec!["wc".to_string(), "-l".to_string()];
+    args.extend(files.iter().cloned());
+    let output = idlebox_command()
+        .args(&args)
+        .args(["-j", "999"])
+        .output()
+        .expect("failed to execute process");
+    assert!(output.status.success());
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}

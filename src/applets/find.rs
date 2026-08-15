@@ -2,6 +2,7 @@ use crate::core::Applet;
 use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -213,7 +214,7 @@ fn find_parallel(
     }
 
     let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
-    let active_threads = Arc::new(Mutex::new(0usize));
+    let active_threads = Arc::new(AtomicUsize::new(0));
 
     let mut handles = Vec::new();
     for _ in 0..num_threads {
@@ -229,26 +230,29 @@ fn find_parallel(
                 let (path, depth) = {
                     let mut queue = work_queue.lock().unwrap();
                     if let Some(item) = queue.pop_front() {
-                        *active_threads.lock().unwrap() += 1;
+                        active_threads.fetch_add(1, Ordering::SeqCst);
                         item
-                    } else if *active_threads.lock().unwrap() == 0 {
-                        break;
                     } else {
+                        // Re-check under lock to avoid race with concurrent push
+                        if active_threads.load(Ordering::SeqCst) == 0 {
+                            break;
+                        }
                         continue;
                     }
                 };
 
                 if let Some(max) = options.max_depth {
                     if depth > max {
-                        *active_threads.lock().unwrap() -= 1;
+                        active_threads.fetch_sub(1, Ordering::SeqCst);
                         continue;
                     }
                 }
 
                 let metadata = match fs::symlink_metadata(&path) {
                     Ok(m) => m,
-                    Err(_) => {
-                        *active_threads.lock().unwrap() -= 1;
+                    Err(e) => {
+                        eprintln!("find: {}: {}", path.display(), e);
+                        active_threads.fetch_sub(1, Ordering::SeqCst);
                         continue;
                     }
                 };
@@ -261,8 +265,9 @@ fn find_parallel(
                     options.empty_only,
                 ) {
                     Ok(m) => m,
-                    Err(_) => {
-                        *active_threads.lock().unwrap() -= 1;
+                    Err(e) => {
+                        eprintln!("find: {}: {}", path.display(), e);
+                        active_threads.fetch_sub(1, Ordering::SeqCst);
                         continue;
                     }
                 };
@@ -274,8 +279,9 @@ fn find_parallel(
                 if metadata.file_type().is_dir() {
                     let entries = match fs::read_dir(&path) {
                         Ok(e) => e,
-                        Err(_) => {
-                            *active_threads.lock().unwrap() -= 1;
+                        Err(e) => {
+                            eprintln!("find: {}: {}", path.display(), e);
+                            active_threads.fetch_sub(1, Ordering::SeqCst);
                             continue;
                         }
                     };
@@ -292,7 +298,7 @@ fn find_parallel(
                     }
                 }
 
-                *active_threads.lock().unwrap() -= 1;
+                active_threads.fetch_sub(1, Ordering::SeqCst);
             }
 
             tx.send(local_results).ok();
@@ -308,7 +314,9 @@ fn find_parallel(
     }
 
     for handle in handles {
-        handle.join().ok();
+        if let Err(e) = handle.join() {
+            eprintln!("find: worker thread panicked: {:?}", e);
+        }
     }
 
     all_results.sort();

@@ -147,6 +147,10 @@ impl Applet for WcApplet {
         let has_stdin = files.contains(&"-");
         let file_count = files.iter().filter(|f| **f != "-").count();
 
+        // Use single-threaded path when:
+        // - Only 0 or 1 regular files (parallelism overhead not worth it)
+        // - stdin is present (must be read sequentially)
+        // - User explicitly requested single thread
         if file_count <= 1 || has_stdin || num_threads <= 1 {
             for file in &files {
                 let result = if *file == "-" {
@@ -387,7 +391,9 @@ impl WcApplet {
         let mut results: Vec<(usize, String, Result<Counts, io::Error>)> = rx.iter().collect();
 
         for handle in handles {
-            handle.join().ok();
+            if let Err(e) = handle.join() {
+                eprintln!("wc: worker thread panicked: {:?}", e);
+            }
         }
 
         results.sort_by_key(|(idx, _, _)| *idx);
