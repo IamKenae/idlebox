@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use crate::core::unix_ffi::{raw_getgrgid, raw_getpwnam, raw_getpwuid};
+use crate::core::unix_ffi::{lock_account_db, raw_getgrgid, raw_getpwnam, raw_getpwuid};
 use crate::core::Applet;
 #[cfg(unix)]
 use std::ffi::{c_char, CStr};
@@ -227,6 +227,7 @@ fn c_char_to_string(ptr: *const c_char) -> String {
 
 #[cfg(unix)]
 fn get_username_by_uid(uid: u32) -> Option<String> {
+    let _account_db_guard = lock_account_db();
     let ptr = unsafe { raw_getpwuid(uid) };
     if ptr.is_null() {
         return None;
@@ -243,6 +244,7 @@ fn get_username_by_uid(uid: u32) -> Option<String> {
 #[cfg(unix)]
 fn get_passwd_by_name(name: &str) -> Option<PasswdInfo> {
     let c_name = std::ffi::CString::new(name).ok()?;
+    let _account_db_guard = lock_account_db();
     let ptr = unsafe { raw_getpwnam(c_name.as_ptr()) };
     if ptr.is_null() {
         return None;
@@ -258,6 +260,7 @@ fn get_passwd_by_name(name: &str) -> Option<PasswdInfo> {
 
 #[cfg(unix)]
 fn get_group_name_by_gid(gid: u32) -> Option<String> {
+    let _account_db_guard = lock_account_db();
     let ptr = unsafe { raw_getgrgid(gid) };
     if ptr.is_null() {
         return None;

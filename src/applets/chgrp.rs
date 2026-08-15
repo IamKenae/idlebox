@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use crate::core::unix_ffi::raw_getgrnam;
+use crate::core::unix_ffi::{lock_account_db, raw_getgrnam};
 use crate::core::Applet;
 
 #[cfg(unix)]
@@ -114,6 +114,7 @@ fn resolve_gid(s: &str) -> Result<u32, String> {
         return Ok(n);
     }
     let c_name = CString::new(s).map_err(|_| format!("invalid group name: '{}'", s))?;
+    let _account_db_guard = lock_account_db();
     let ptr = unsafe { raw_getgrnam(c_name.as_ptr()) };
     if ptr.is_null() {
         return Err(format!("invalid group: '{}'", s));

@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use crate::core::unix_ffi::raw_getpwnam;
+use crate::core::unix_ffi::{lock_account_db, raw_getpwnam};
 use crate::core::Applet;
 
 #[cfg(unix)]
@@ -278,6 +278,7 @@ fn c_char_to_string(ptr: *const c_char) -> String {
 #[cfg(unix)]
 fn get_passwd_by_name(name: &str) -> Option<PasswdInfo> {
     let c_name = CString::new(name).ok()?;
+    let _account_db_guard = lock_account_db();
     let ptr = unsafe { raw_getpwnam(c_name.as_ptr()) };
     if ptr.is_null() {
         return None;

@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use crate::core::unix_ffi::raw_getpwuid;
+use crate::core::unix_ffi::{lock_account_db, raw_getpwuid};
 use crate::core::Applet;
 #[cfg(unix)]
 use std::ffi::{c_char, CStr};
@@ -61,6 +61,7 @@ impl Applet for WhoamiApplet {
 
 #[cfg(unix)]
 fn get_username_by_uid(uid: u32) -> Option<String> {
+    let _account_db_guard = lock_account_db();
     let ptr = unsafe { raw_getpwuid(uid) };
     if ptr.is_null() {
         return None;
