@@ -1,4 +1,4 @@
-use crate::applets::hash_common::{run_hash_applet, Hasher};
+use crate::applets::hash_common::{hex_encode, run_hash_applet, HashImpl};
 use crate::core::Applet;
 
 pub struct Sha1sumApplet;
@@ -23,7 +23,7 @@ struct Sha1Hasher {
     len: u64,
 }
 
-impl Hasher for Sha1Hasher {
+impl HashImpl for Sha1Hasher {
     fn new() -> Self {
         Sha1Hasher {
             state: [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0],
@@ -43,7 +43,7 @@ impl Hasher for Sha1Hasher {
                 return;
             }
             self.buffer[buffer_len..].copy_from_slice(&data[..space]);
-            self.process_block(self.buffer.clone());
+            self.process_block(self.buffer);
             data = &data[space..];
         }
 
@@ -74,12 +74,8 @@ impl Hasher for Sha1Hasher {
         for i in 0..5 {
             out[i * 4..i * 4 + 4].copy_from_slice(&self.state[i].to_be_bytes());
         }
-        
-        let mut hex = String::with_capacity(40);
-        for b in out {
-            hex.push_str(&format!("{:02x}", b));
-        }
-        hex
+
+        hex_encode(&out)
     }
 }
 
@@ -99,6 +95,7 @@ impl Sha1Hasher {
         let mut d = self.state[3];
         let mut e = self.state[4];
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..80 {
             let (f, k) = match i {
                 0..=19 => ((b & c) | ((!b) & d), 0x5A827999),
@@ -108,7 +105,8 @@ impl Sha1Hasher {
                 _ => unreachable!(),
             };
 
-            let temp = a.rotate_left(5)
+            let temp = a
+                .rotate_left(5)
                 .wrapping_add(f)
                 .wrapping_add(e)
                 .wrapping_add(k)

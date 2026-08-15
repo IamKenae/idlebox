@@ -1,13 +1,45 @@
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read};
 
-pub trait Hasher {
+pub fn hex_encode(data: &[u8]) -> String {
+    const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
+    let mut s = String::with_capacity(data.len() * 2);
+    for &b in data {
+        s.push(HEX_CHARS[(b >> 4) as usize] as char);
+        s.push(HEX_CHARS[(b & 0xf) as usize] as char);
+    }
+    s
+}
+
+pub trait HashImpl {
     fn new() -> Self;
     fn update(&mut self, data: &[u8]);
     fn finalize(self) -> String; // Returns hex string
+
+    fn hash_file(file: &str) -> io::Result<String>
+    where
+        Self: Sized,
+    {
+        let mut reader: Box<dyn Read> = if file == "-" {
+            Box::new(io::stdin())
+        } else {
+            Box::new(File::open(file)?)
+        };
+
+        let mut hasher = Self::new();
+        let mut buf = [0u8; 8192];
+        loop {
+            let n = reader.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+        Ok(hasher.finalize())
+    }
 }
 
-pub fn run_hash_applet<H: Hasher>(
+pub fn run_hash_applet<H: HashImpl>(
     applet_name: &str,
     args: &[String],
 ) -> Result<i32, Box<dyn std::error::Error>> {
@@ -16,9 +48,17 @@ pub fn run_hash_applet<H: Hasher>(
     let mut binary = false;
     let mut files = Vec::new();
 
-    let mut it = args.iter();
-    while let Some(arg) = it.next() {
+    let it = args.iter();
+    let mut end_of_options = false;
+
+    for arg in it {
+        if end_of_options {
+            files.push(arg.clone());
+            continue;
+        }
+
         match arg.as_str() {
+            "--" => end_of_options = true,
             "-c" | "--check" => check = true,
             "--status" => status = true,
             "-b" | "--binary" => binary = true,
@@ -54,7 +94,7 @@ pub fn run_hash_applet<H: Hasher>(
         }
     } else {
         for file in files {
-            match hash_file::<H>(&file) {
+            match H::hash_file(&file) {
                 Ok(hash) => {
                     let mode = if binary { "*" } else { " " };
                     println!("{} {}{}", hash, mode, file);
@@ -70,26 +110,7 @@ pub fn run_hash_applet<H: Hasher>(
     Ok(exit_code)
 }
 
-fn hash_file<H: Hasher>(file: &str) -> io::Result<String> {
-    let mut reader: Box<dyn Read> = if file == "-" {
-        Box::new(io::stdin())
-    } else {
-        Box::new(File::open(file)?)
-    };
-
-    let mut hasher = H::new();
-    let mut buf = [0u8; 8192];
-    loop {
-        let n = reader.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hasher.finalize())
-}
-
-fn check_file<H: Hasher>(applet_name: &str, file: &str, status: bool) -> io::Result<bool> {
+fn check_file<H: HashImpl>(applet_name: &str, file: &str, status: bool) -> io::Result<bool> {
     let reader: Box<dyn Read> = if file == "-" {
         Box::new(io::stdin())
     } else {
@@ -120,7 +141,7 @@ fn check_file<H: Hasher>(applet_name: &str, file: &str, status: bool) -> io::Res
         }
         let space_idx = space_idx.unwrap();
         let expected_hash = &line[..space_idx];
-        
+
         let rem = &line[space_idx..];
         if !rem.starts_with("  ") && !rem.starts_with(" *") {
             bad_format += 1;
@@ -128,7 +149,7 @@ fn check_file<H: Hasher>(applet_name: &str, file: &str, status: bool) -> io::Res
         }
         let target_file = &rem[2..];
 
-        match hash_file::<H>(target_file) {
+        match H::hash_file(target_file) {
             Ok(actual_hash) => {
                 if expected_hash.eq_ignore_ascii_case(&actual_hash) {
                     if !status {
@@ -149,9 +170,12 @@ fn check_file<H: Hasher>(applet_name: &str, file: &str, status: bool) -> io::Res
             }
         }
     }
-    
+
     if bad_format > 0 && !status {
-        eprintln!("{}: WARNING: {} lines are improperly formatted", applet_name, bad_format);
+        eprintln!(
+            "{}: WARNING: {} lines are improperly formatted",
+            applet_name, bad_format
+        );
     }
 
     Ok(all_ok)

@@ -1,11 +1,12 @@
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, BufReader, Read};
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 
+use crate::applets::hash_common::{hex_encode, run_hash_applet, HashImpl};
 use crate::core::Applet;
 
 pub struct B3sumApplet;
@@ -20,79 +21,20 @@ impl Applet for B3sumApplet {
     }
 
     fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
-        let mut check = false;
-        let mut status = false;
-        let mut binary = false;
-        let mut files = Vec::new();
-
-        let mut it = args.iter();
-        while let Some(arg) = it.next() {
-            match arg.as_str() {
-                "-c" | "--check" => check = true,
-                "--status" => status = true,
-                "-b" | "--binary" => binary = true,
-                "-t" | "--text" => (),
-                _ if arg.starts_with('-') && arg != "-" => {
-                    for ch in arg.chars().skip(1) {
-                        match ch {
-                            'c' => check = true,
-                            'b' => binary = true,
-                            't' => (),
-                            _ => {
-                                eprintln!("b3sum: invalid option -- '{}'", ch);
-                                return Ok(1);
-                            }
-                        }
-                    }
-                }
-                _ => files.push(arg.clone()),
-            }
-        }
-
-        if files.is_empty() {
-            files.push("-".to_string());
-        }
-
-        let mut exit_code = 0;
-
-        if check {
-            for file in files {
-                if !check_file(&file, status)? {
-                    exit_code = 1;
-                }
-            }
-        } else {
-            for file in files {
-                match hash_file(&file) {
-                    Ok(hash) => {
-                        let mode = if binary { "*" } else { " " };
-                        println!("{} {}{}", hash, mode, file);
-                    }
-                    Err(e) => {
-                        eprintln!("b3sum: {}: {}", file, e);
-                        exit_code = 1;
-                    }
-                }
-            }
-        }
-
-        Ok(exit_code)
+        run_hash_applet::<Blake3Hasher>("b3sum", args)
     }
 }
 
 const IV: [u32; 8] = [
-    0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
-    0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
+    0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A, 0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19,
 ];
 
-const MSG_PERMUTATION: [usize; 16] = [
-    2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8
-];
+const MSG_PERMUTATION: [usize; 16] = [2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8];
 
 const CHUNK_START: u32 = 1 << 0;
-const CHUNK_END: u32   = 1 << 1;
-const PARENT: u32      = 1 << 2;
-const ROOT: u32        = 1 << 3;
+const CHUNK_END: u32 = 1 << 1;
+const PARENT: u32 = 1 << 2;
+const ROOT: u32 = 1 << 3;
 
 fn quarter_round(v: &mut [u32; 16], a: usize, b: usize, c: usize, d: usize, m0: u32, m1: u32) {
     v[a] = v[a].wrapping_add(v[b]).wrapping_add(m0);
@@ -105,7 +47,13 @@ fn quarter_round(v: &mut [u32; 16], a: usize, b: usize, c: usize, d: usize, m0: 
     v[b] = (v[b] ^ v[c]).rotate_right(7);
 }
 
-fn compress(cv: &[u32; 8], block: &[u8; 64], counter: u64, block_len: u32, flags: u32) -> [u32; 16] {
+fn compress(
+    cv: &[u32; 8],
+    block: &[u8; 64],
+    counter: u64,
+    block_len: u32,
+    flags: u32,
+) -> [u32; 16] {
     let mut m = [0u32; 16];
     for i in 0..16 {
         m[i] = u32::from_le_bytes(block[i * 4..i * 4 + 4].try_into().unwrap());
@@ -209,16 +157,28 @@ struct Output {
 
 impl Output {
     fn chaining_value(&self) -> [u32; 8] {
-        let v = compress(&self.input_cv, &self.block, self.counter, self.block_len, self.flags);
+        let v = compress(
+            &self.input_cv,
+            &self.block,
+            self.counter,
+            self.block_len,
+            self.flags,
+        );
         let mut cv = [0u32; 8];
         for i in 0..8 {
             cv[i] = v[i] ^ v[i + 8];
         }
         cv
     }
-    
+
     fn root_bytes(&self) -> [u8; 32] {
-        let v = compress(&self.input_cv, &self.block, self.counter, self.block_len, self.flags | ROOT);
+        let v = compress(
+            &self.input_cv,
+            &self.block,
+            self.counter,
+            self.block_len,
+            self.flags | ROOT,
+        );
         let mut out = [0u8; 32];
         for i in 0..8 {
             out[i * 4..i * 4 + 4].copy_from_slice(&(v[i] ^ v[i + 8]).to_le_bytes());
@@ -251,7 +211,7 @@ struct Blake3Hasher {
     cv_stack: Vec<([u32; 8], u8)>,
 }
 
-impl Blake3Hasher {
+impl HashImpl for Blake3Hasher {
     fn new() -> Self {
         Self {
             chunk_state: ChunkState::new(IV, 0, 0),
@@ -259,29 +219,22 @@ impl Blake3Hasher {
         }
     }
 
-    fn push_cv_at_height(&mut self, mut cv: [u32; 8], mut height: u8) {
-        while let Some(&(prev_cv, prev_height)) = self.cv_stack.last() {
-            if prev_height == height {
-                self.cv_stack.pop();
-                cv = parent_cv(&prev_cv, &cv, IV, 0);
-                height += 1;
-            } else {
-                break;
-            }
-        }
-        self.cv_stack.push((cv, height));
-    }
-
     fn update(&mut self, mut input: &[u8]) {
         while !input.is_empty() {
-            let chunk_bytes_processed = self.chunk_state.blocks_compressed as usize * 64 + self.chunk_state.block_len as usize;
+            let chunk_bytes_processed = self.chunk_state.blocks_compressed as usize * 64
+                + self.chunk_state.block_len as usize;
             if chunk_bytes_processed == 1024 {
                 let cv = self.chunk_state.output().chaining_value();
                 self.push_cv_at_height(cv, 0);
-                self.chunk_state = ChunkState::new(IV, self.chunk_state.chunk_counter + 1, self.chunk_state.flags);
+                self.chunk_state = ChunkState::new(
+                    IV,
+                    self.chunk_state.chunk_counter + 1,
+                    self.chunk_state.flags,
+                );
             }
 
-            let chunk_bytes_processed = self.chunk_state.blocks_compressed as usize * 64 + self.chunk_state.block_len as usize;
+            let chunk_bytes_processed = self.chunk_state.blocks_compressed as usize * 64
+                + self.chunk_state.block_len as usize;
             let take = (1024 - chunk_bytes_processed).min(input.len());
             self.chunk_state.update(&input[..take]);
             input = &input[take..];
@@ -296,11 +249,59 @@ impl Blake3Hasher {
         }
 
         let root_bytes = output.root_bytes();
-        let mut hex = String::with_capacity(64);
-        for b in root_bytes {
-            hex.push_str(&format!("{:02x}", b));
+        hex_encode(&root_bytes)
+    }
+
+    fn hash_file(file: &str) -> io::Result<String> {
+        if file == "-" {
+            let mut hasher = Blake3Hasher::new();
+            let mut reader = io::stdin();
+            let mut buf = [0u8; 32 * 1024];
+            loop {
+                let n = reader.read(&mut buf)?;
+                if n == 0 {
+                    break;
+                }
+                hasher.update(&buf[..n]);
+            }
+            return Ok(hasher.finalize());
         }
-        hex
+
+        let f = File::open(file)?;
+        let meta = f.metadata()?;
+        let size = meta.len();
+
+        #[cfg(unix)]
+        if size > 1024 * 1024 {
+            return hash_file_parallel(f, size);
+        }
+
+        let mut hasher = Blake3Hasher::new();
+        let mut reader = BufReader::new(f);
+        let mut buf = [0u8; 32 * 1024];
+        loop {
+            let n = reader.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+        }
+        Ok(hasher.finalize())
+    }
+}
+
+impl Blake3Hasher {
+    fn push_cv_at_height(&mut self, mut cv: [u32; 8], mut height: u8) {
+        while let Some(&(prev_cv, prev_height)) = self.cv_stack.last() {
+            if prev_height == height {
+                self.cv_stack.pop();
+                cv = parent_cv(&prev_cv, &cv, IV, 0);
+                height += 1;
+            } else {
+                break;
+            }
+        }
+        self.cv_stack.push((cv, height));
     }
 }
 
@@ -308,155 +309,69 @@ impl Blake3Hasher {
 fn hash_file_parallel(f: File, size: u64) -> io::Result<String> {
     let chunk_size = 1024 * 1024;
     let num_full_blocks = (size / chunk_size) as usize;
-    
+
     let current_block = Arc::new(AtomicUsize::new(0));
-    let num_threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(num_full_blocks);
-    
+    let num_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(num_full_blocks);
+
     let mut handles = Vec::new();
-    
+
     for _ in 0..num_threads {
         let current_block = current_block.clone();
         let f = f.try_clone()?;
-        handles.push(thread::spawn(move || -> io::Result<Vec<(usize, [u32; 8])>> {
-            let mut results = Vec::new();
-            let mut buf = vec![0u8; chunk_size as usize];
-            loop {
-                let idx = current_block.fetch_add(1, Ordering::Relaxed);
-                if idx >= num_full_blocks {
-                    break;
+        handles.push(thread::spawn(
+            move || -> io::Result<Vec<(usize, [u32; 8])>> {
+                let mut results = Vec::new();
+                let mut buf = vec![0u8; chunk_size as usize];
+                loop {
+                    let idx = current_block.fetch_add(1, Ordering::Relaxed);
+                    if idx >= num_full_blocks {
+                        break;
+                    }
+
+                    f.read_exact_at(&mut buf, (idx as u64) * chunk_size)?;
+
+                    let mut local_hasher = Blake3Hasher::new();
+                    local_hasher.chunk_state.chunk_counter = (idx as u64) * 1024;
+                    local_hasher.update(&buf);
+
+                    let mut output = local_hasher.chunk_state.output();
+                    for (cv, _) in local_hasher.cv_stack.drain(..).rev() {
+                        let right_cv = output.chaining_value();
+                        output = parent_output(&cv, &right_cv, IV, 0);
+                    }
+                    let cv = output.chaining_value();
+
+                    results.push((idx, cv));
                 }
-                
-                f.read_exact_at(&mut buf, (idx as u64) * chunk_size)?;
-                
-                let mut local_hasher = Blake3Hasher::new();
-                local_hasher.chunk_state.chunk_counter = (idx as u64) * 1024;
-                local_hasher.update(&buf);
-                
-                let cv = local_hasher.chunk_state.output().chaining_value();
-                results.push((idx, cv));
-            }
-            Ok(results)
-        }));
+                Ok(results)
+            },
+        ));
     }
-    
+
     let mut all_cvs = vec![[0u32; 8]; num_full_blocks];
     for handle in handles {
-        let results = handle.join().unwrap()?;
+        let results = handle.join().map_err(|_| io::Error::other("thread panicked"))??;
         for (idx, cv) in results {
             all_cvs[idx] = cv;
         }
     }
-    
+
     let mut main_hasher = Blake3Hasher::new();
     for cv in all_cvs {
         main_hasher.push_cv_at_height(cv, 10);
     }
-    
+
     main_hasher.chunk_state.chunk_counter = (num_full_blocks as u64) * 1024;
-    
+
     let rem = size % chunk_size;
     if rem > 0 {
         let mut buf = vec![0u8; rem as usize];
         f.read_exact_at(&mut buf, size - rem)?;
         main_hasher.update(&buf);
     }
-    
+
     Ok(main_hasher.finalize())
-}
-
-fn hash_file(file: &str) -> io::Result<String> {
-    if file == "-" {
-        let mut hasher = Blake3Hasher::new();
-        let mut reader = io::stdin();
-        let mut buf = [0u8; 32 * 1024];
-        loop {
-            let n = reader.read(&mut buf)?;
-            if n == 0 { break; }
-            hasher.update(&buf[..n]);
-        }
-        return Ok(hasher.finalize());
-    }
-
-    let f = File::open(file)?;
-    let meta = f.metadata()?;
-    let size = meta.len();
-    
-    #[cfg(unix)]
-    if size > 1024 * 1024 {
-        return hash_file_parallel(f, size);
-    }
-
-    let mut hasher = Blake3Hasher::new();
-    let mut reader = BufReader::new(f);
-    let mut buf = [0u8; 32 * 1024];
-    loop {
-        let n = reader.read(&mut buf)?;
-        if n == 0 { break; }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hasher.finalize())
-}
-
-fn check_file(file: &str, status: bool) -> io::Result<bool> {
-    let reader: Box<dyn Read> = if file == "-" {
-        Box::new(io::stdin())
-    } else {
-        Box::new(File::open(file)?)
-    };
-
-    let mut buf_reader = BufReader::new(reader);
-    let mut line = String::new();
-    let mut all_ok = true;
-    let mut bad_format = 0;
-
-    loop {
-        line.clear();
-        let n = buf_reader.read_line(&mut line)?;
-        if n == 0 { break; }
-
-        let line = line.trim_end_matches(&['\r', '\n'][..]);
-        if line.is_empty() { continue; }
-
-        let space_idx = line.find(' ');
-        if space_idx.is_none() {
-            bad_format += 1;
-            continue;
-        }
-        let space_idx = space_idx.unwrap();
-        let expected_hash = &line[..space_idx];
-        
-        let rem = &line[space_idx..];
-        if !rem.starts_with("  ") && !rem.starts_with(" *") {
-            bad_format += 1;
-            continue;
-        }
-        let target_file = &rem[2..];
-
-        match hash_file(target_file) {
-            Ok(actual_hash) => {
-                if expected_hash.eq_ignore_ascii_case(&actual_hash) {
-                    if !status {
-                        println!("{}: OK", target_file);
-                    }
-                } else {
-                    if !status {
-                        println!("{}: FAILED", target_file);
-                    }
-                    all_ok = false;
-                }
-            }
-            Err(_) => {
-                if !status {
-                    println!("{}: FAILED open or read", target_file);
-                }
-                all_ok = false;
-            }
-        }
-    }
-    
-    if bad_format > 0 && !status {
-        eprintln!("b3sum: WARNING: {} lines are improperly formatted", bad_format);
-    }
-
-    Ok(all_ok)
 }
