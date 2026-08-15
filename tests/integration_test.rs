@@ -3516,7 +3516,8 @@ fn test_chown_missing_operand() {
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("missing operand"));
+    assert!(stderr.contains("IdleBox v"));
+    assert!(stderr.contains("Usage: chown"));
 }
 
 #[test]

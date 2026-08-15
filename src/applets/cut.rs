@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{banner, Applet};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 
@@ -90,7 +90,7 @@ impl Applet for CutApplet {
         let mode = match mode {
             Some(m) => m,
             None => {
-                eprintln!("cut: you must specify either -f or -c");
+                self.print_usage();
                 return Ok(1);
             }
         };
@@ -119,6 +119,8 @@ impl Applet for CutApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: cut [OPTION]... [FILE]...");
         println!();
         println!("{}", self.description());
@@ -133,6 +135,19 @@ impl Applet for CutApplet {
 }
 
 impl CutApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: cut [OPTION]... [FILE]...");
+        eprintln!();
+        eprintln!("Options:");
+        eprintln!("  -d, --delimiter=DELIM   use DELIM instead of TAB for field delimiter");
+        eprintln!("  -f, --fields=LIST       select only these fields");
+        eprintln!("  -c, --characters=LIST   select only these characters");
+        eprintln!();
+        eprintln!("With no FILE, or when FILE is -, read standard input.");
+    }
+
     fn parse_ranges(spec: &str) -> Result<Vec<Range>, Box<dyn std::error::Error>> {
         let mut ranges = Vec::new();
         for part in spec.split(',') {

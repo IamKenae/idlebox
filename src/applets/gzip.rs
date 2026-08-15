@@ -6,7 +6,7 @@ use std::error::Error;
 use std::ffi::OsString;
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -115,13 +115,13 @@ pub(crate) fn run_gzip(args: &[String], invocation: GzipInvocation) -> Result<i3
     };
 
     if options.files.is_empty() {
-        return match transform_standard_stream(options.operation) {
+        return match transform_standard_stream(options.operation, program) {
             Ok(()) => Ok(0),
             Err(error) => {
                 if error.is_broken_pipe() {
                     Err(Box::new(error))
                 } else {
-                    eprintln!("{}: {}", program, error);
+                    eprintln!("{}", error);
                     Ok(1)
                 }
             }
@@ -131,7 +131,7 @@ pub(crate) fn run_gzip(args: &[String], invocation: GzipInvocation) -> Result<i3
     let mut failed = false;
     for input_name in &options.files {
         let result = if *input_name == "-" {
-            transform_standard_stream(options.operation)
+            transform_standard_stream(options.operation, program)
         } else if options.to_stdout {
             transform_file_to_stdout(Path::new(input_name), options.operation)
         } else {
@@ -166,13 +166,13 @@ pub(crate) fn run_zcat(args: &[String]) -> Result<i32, Box<dyn Error>> {
     };
 
     if files.is_empty() {
-        return match transform_standard_stream(Operation::Decompress) {
+        return match transform_standard_stream(Operation::Decompress, "zcat") {
             Ok(()) => Ok(0),
             Err(error) => {
                 if error.is_broken_pipe() {
                     Err(Box::new(error))
                 } else {
-                    eprintln!("zcat: {}", error);
+                    eprintln!("{}", error);
                     Ok(1)
                 }
             }
@@ -182,7 +182,7 @@ pub(crate) fn run_zcat(args: &[String]) -> Result<i32, Box<dyn Error>> {
     let mut failed = false;
     for input_name in files {
         let result = if input_name == "-" {
-            transform_standard_stream(Operation::Decompress)
+            transform_standard_stream(Operation::Decompress, "zcat")
         } else {
             transform_file_to_stdout(Path::new(input_name), Operation::Decompress)
         };
@@ -279,8 +279,14 @@ fn parse_zcat_options(args: &[String]) -> Result<Vec<&str>, String> {
     Ok(files)
 }
 
-fn transform_standard_stream(operation: Operation) -> Result<(), ProcessError> {
+fn transform_standard_stream(operation: Operation, program: &str) -> Result<(), ProcessError> {
     let stdin = io::stdin();
+    if stdin.is_terminal() {
+        return Err(ProcessError::Message(format!(
+            "{}: compressed data not read from a terminal. Use -f to force decompression.",
+            program
+        )));
+    }
     let mut input = stdin.lock();
     let stdout = io::stdout();
     let mut output = stdout.lock();

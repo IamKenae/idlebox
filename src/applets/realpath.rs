@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{banner, Applet};
 use std::fs;
 use std::io::{self, Write};
 
@@ -46,7 +46,7 @@ impl Applet for RealpathApplet {
         }
 
         if paths.is_empty() {
-            eprintln!("realpath: missing operand");
+            self.print_usage();
             return Ok(1);
         }
 
@@ -74,6 +74,8 @@ impl Applet for RealpathApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: realpath [OPTION]... FILE...");
         println!();
         println!("{}", self.description());
@@ -82,5 +84,18 @@ impl Applet for RealpathApplet {
         println!("  -e, --canonicalize-existing  Require every path component to exist");
         println!("  -q, --quiet                  Suppress diagnostics for invalid paths");
         println!("  -z, --zero                   End each output with NUL, not newline");
+    }
+}
+
+impl RealpathApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: realpath [OPTION]... FILE...");
+        eprintln!();
+        eprintln!("Options:");
+        eprintln!("  -e, --canonicalize-existing  Require every path component to exist");
+        eprintln!("  -q, --quiet                  Suppress diagnostics for invalid paths");
+        eprintln!("  -z, --zero                   End each output with NUL, not newline");
     }
 }

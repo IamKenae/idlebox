@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{banner, Applet};
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -34,7 +34,7 @@ impl Applet for MvApplet {
         }
 
         if sources.len() < 2 {
-            eprintln!("mv: missing destination operand");
+            self.print_usage();
             return Ok(1);
         }
 
@@ -88,6 +88,8 @@ impl Applet for MvApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: mv [OPTION]... SOURCE... DEST");
         println!();
         println!("{}", self.description());
@@ -98,6 +100,15 @@ impl Applet for MvApplet {
 }
 
 impl MvApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: mv [OPTION]... SOURCE... DEST");
+        eprintln!();
+        eprintln!("If DEST is a directory, SOURCE(s) are moved into DEST.");
+        eprintln!("Handles cross-device moves automatically (copy + remove).");
+    }
+
     fn move_cross_device(src: &Path, dest: &Path) -> io::Result<()> {
         let metadata = fs::symlink_metadata(src)?;
         if metadata.file_type().is_symlink() {

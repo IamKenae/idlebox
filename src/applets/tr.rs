@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{banner, Applet};
 use std::io::{self, Read, Write};
 
 pub struct TrApplet;
@@ -47,7 +47,7 @@ impl Applet for TrApplet {
         }
 
         if positional.is_empty() {
-            eprintln!("tr: missing operand");
+            self.print_usage();
             return Ok(1);
         }
 
@@ -121,6 +121,8 @@ impl Applet for TrApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: tr [OPTION]... SET1 [SET2]");
         println!();
         println!("{}", self.description());
@@ -134,6 +136,18 @@ impl Applet for TrApplet {
 }
 
 impl TrApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: tr [OPTION]... SET1 [SET2]");
+        eprintln!();
+        eprintln!("Options:");
+        eprintln!("  -d, --delete          delete characters in SET1");
+        eprintln!("  -s, --squeeze-repeats  replace each sequence of a repeated character");
+        eprintln!();
+        eprintln!("SETs are specified as strings of characters. Ranges like 'a-z' are expanded.");
+    }
+
     fn expand_set(spec: &str) -> Vec<char> {
         let mut result = Vec::new();
         let chars: Vec<char> = spec.chars().collect();
