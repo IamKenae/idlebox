@@ -3,7 +3,7 @@ use crate::applets::{
     CutApplet, DfApplet, DirnameApplet, DuApplet, EchoApplet, EnvApplet, ExprApplet, FalseApplet,
     FindApplet, FreeApplet, GrepApplet, GunzipApplet, GzipApplet, HeadApplet, IdApplet, KillApplet,
     LnApplet, LsApplet, Md5sumApplet, MkdirApplet, MvApplet, PrintenvApplet, PrintfApplet, PsApplet, PwdApplet,
-    ReadlinkApplet, RealpathApplet, RelaxApplet, RmApplet, SleepApplet, SortApplet, SuApplet,
+    ReadlinkApplet, RealpathApplet, RelaxApplet, RmApplet, Sha1sumApplet, SleepApplet, SortApplet, SuApplet,
     TailApplet, TarApplet, TeeApplet, TestApplet, TouchApplet, TrApplet, TreeApplet, TrueApplet,
     UnameApplet, UniqApplet, UnzipApplet, UptimeApplet, WcApplet, WhoamiApplet, ZcatApplet,
 };
@@ -86,6 +86,7 @@ static APPLETS: &[AppletEntry] = &[
     AppletEntry::new(&RealpathApplet, true),
     AppletEntry::new(&RelaxApplet, true),
     AppletEntry::new(&RmApplet, true),
+    AppletEntry::new(&Sha1sumApplet, true),
     AppletEntry::new(&SortApplet, true),
     AppletEntry::new(&SleepApplet, true),
     AppletEntry::new(&SuApplet, true),
