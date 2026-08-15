@@ -37,7 +37,12 @@ impl Applet for FindApplet {
                         eprintln!("find: missing argument for -type");
                         return Ok(1);
                     }
-                    let t = args[i].chars().next().unwrap_or('f');
+                    let mut chars = args[i].chars();
+                    let t = chars.next().unwrap_or('\0');
+                    if !matches!(t, 'f' | 'd' | 'l') || chars.next().is_some() {
+                        eprintln!("find: unknown file type: {}", args[i]);
+                        return Ok(1);
+                    }
                     type_filter = Some(t);
                 }
                 "-maxdepth" => {
@@ -46,7 +51,13 @@ impl Applet for FindApplet {
                         eprintln!("find: missing argument for -maxdepth");
                         return Ok(1);
                     }
-                    max_depth = Some(args[i].parse::<usize>().unwrap_or(usize::MAX));
+                    max_depth = match args[i].parse::<usize>() {
+                        Ok(depth) => Some(depth),
+                        Err(_) => {
+                            eprintln!("find: invalid -maxdepth value: {}", args[i]);
+                            return Ok(1);
+                        }
+                    };
                 }
                 "-empty" => {
                     empty_only = true;
@@ -115,34 +126,26 @@ fn find_recursive(
     let metadata = fs::symlink_metadata(path)?;
     let file_type = metadata.file_type();
 
-    let is_match = check_match(
-        path,
-        &metadata,
-        name_pattern,
-        type_filter,
-        empty_only,
-    );
+    let is_match = check_match(path, &metadata, name_pattern, type_filter, empty_only)?;
 
     if is_match {
         println!("{}", path.display());
     }
 
     if file_type.is_dir() {
-        if let Ok(entries) = fs::read_dir(path) {
-            let mut entries: Vec<_> = entries.filter_map(|e| e.ok()).collect();
-            entries.sort_by_key(|e| e.file_name());
+        let mut entries: Vec<_> = fs::read_dir(path)?.collect::<Result<_, _>>()?;
+        entries.sort_by_key(|entry| entry.file_name());
 
-            for entry in entries {
-                let entry_path = entry.path();
-                find_recursive(
-                    &entry_path,
-                    name_pattern,
-                    type_filter,
-                    max_depth,
-                    empty_only,
-                    current_depth + 1,
-                )?;
-            }
+        for entry in entries {
+            let entry_path = entry.path();
+            find_recursive(
+                &entry_path,
+                name_pattern,
+                type_filter,
+                max_depth,
+                empty_only,
+                current_depth + 1,
+            )?;
         }
     }
 
@@ -155,11 +158,11 @@ fn check_match(
     name_pattern: &Option<String>,
     type_filter: &Option<char>,
     empty_only: bool,
-) -> bool {
+) -> Result<bool, Box<dyn std::error::Error>> {
     if let Some(pattern) = name_pattern {
         let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
         if !glob_match(pattern, file_name) {
-            return false;
+            return Ok(false);
         }
     }
 
@@ -172,7 +175,7 @@ fn check_match(
             _ => false,
         };
         if !matches {
-            return false;
+            return Ok(false);
         }
     }
 
@@ -180,27 +183,25 @@ fn check_match(
         let file_type = metadata.file_type();
         if file_type.is_file() {
             if metadata.len() != 0 {
-                return false;
+                return Ok(false);
             }
         } else if file_type.is_dir() {
-            if let Ok(entries) = fs::read_dir(path) {
-                if entries.count() > 0 {
-                    return false;
-                }
+            if fs::read_dir(path)?.next().transpose()?.is_some() {
+                return Ok(false);
             }
         } else {
-            return false;
+            return Ok(false);
         }
     }
 
-    true
+    Ok(true)
 }
 
 fn glob_match(pattern: &str, text: &str) -> bool {
     let p_chars = pattern.chars().peekable();
     let t_chars = text.chars().peekable();
 
-    glob_match_inner(&mut p_chars.collect::<Vec<_>>(), &t_chars.collect::<Vec<_>>())
+    glob_match_inner(&p_chars.collect::<Vec<_>>(), &t_chars.collect::<Vec<_>>())
 }
 
 fn glob_match_inner(pattern: &[char], text: &[char]) -> bool {

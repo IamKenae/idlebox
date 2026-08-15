@@ -28,13 +28,22 @@ impl Applet for UptimeApplet {
         let minutes = (remaining % 3600) / 60;
 
         let uptime_str = if days > 0 {
-            format!("up {} day{}, {:02}:{:02}", days, if days == 1 { "" } else { "s" }, hours, minutes)
+            format!(
+                "up {} day{}, {:02}:{:02}",
+                days,
+                if days == 1 { "" } else { "s" },
+                hours,
+                minutes
+            )
         } else {
             format!("up {:02}:{:02}", hours, minutes)
         };
 
-        writeln!(out, " {}  {},  1 user,  load average: {:.2}, {:.2}, {:.2}",
-            current_time, uptime_str, load1, load5, load15)?;
+        writeln!(
+            out,
+            " {}  {},  1 user,  load average: {:.2}, {:.2}, {:.2}",
+            current_time, uptime_str, load1, load5, load15
+        )?;
 
         Ok(0)
     }
@@ -55,13 +64,22 @@ impl Applet for UptimeApplet {
         let minutes = (remaining % 3600) / 60;
 
         let uptime_str = if days > 0 {
-            format!("up {} day{}, {:02}:{:02}", days, if days == 1 { "" } else { "s" }, hours, minutes)
+            format!(
+                "up {} day{}, {:02}:{:02}",
+                days,
+                if days == 1 { "" } else { "s" },
+                hours,
+                minutes
+            )
         } else {
             format!("up {:02}:{:02}", hours, minutes)
         };
 
-        writeln!(out, " {}  {},  1 user,  load average: {:.2}, {:.2}, {:.2}",
-            current_time, uptime_str, load1, load5, load15)?;
+        writeln!(
+            out,
+            " {}  {},  1 user,  load average: {:.2}, {:.2}, {:.2}",
+            current_time, uptime_str, load1, load5, load15
+        )?;
 
         Ok(0)
     }
@@ -80,7 +98,13 @@ impl Applet for UptimeApplet {
         let minutes = (remaining % 3600) / 60;
 
         let uptime_str = if days > 0 {
-            format!("up {} day{}, {:02}:{:02}", days, if days == 1 { "" } else { "s" }, hours, minutes)
+            format!(
+                "up {} day{}, {:02}:{:02}",
+                days,
+                if days == 1 { "" } else { "s" },
+                hours,
+                minutes
+            )
         } else {
             format!("up {:02}:{:02}", hours, minutes)
         };
@@ -109,9 +133,13 @@ fn parse_uptime_linux() -> Result<u64, io::Error> {
     let content = fs::read_to_string("/proc/uptime")?;
     let parts: Vec<&str> = content.split_whitespace().collect();
     if parts.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "empty /proc/uptime"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "empty /proc/uptime",
+        ));
     }
-    let secs: f64 = parts[0].parse()
+    let secs: f64 = parts[0]
+        .parse()
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid uptime value"))?;
     Ok(secs as u64)
 }
@@ -122,13 +150,19 @@ fn parse_loadavg_linux() -> Result<(f64, f64, f64, u32, u32), io::Error> {
     let content = fs::read_to_string("/proc/loadavg")?;
     let parts: Vec<&str> = content.split_whitespace().collect();
     if parts.len() < 4 {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "unexpected /proc/loadavg format"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "unexpected /proc/loadavg format",
+        ));
     }
-    let load1: f64 = parts[0].parse()
+    let load1: f64 = parts[0]
+        .parse()
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid load1"))?;
-    let load5: f64 = parts[1].parse()
+    let load5: f64 = parts[1]
+        .parse()
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid load5"))?;
-    let load15: f64 = parts[2].parse()
+    let load15: f64 = parts[2]
+        .parse()
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid load15"))?;
 
     let task_parts: Vec<&str> = parts[3].split('/').collect();
@@ -141,7 +175,8 @@ fn parse_loadavg_linux() -> Result<(f64, f64, f64, u32, u32), io::Error> {
 #[cfg(target_os = "macos")]
 fn get_uptime_macos() -> Result<u64, io::Error> {
     let output = std::process::Command::new("sysctl")
-        .arg("-n").arg("kern.boottime")
+        .arg("-n")
+        .arg("kern.boottime")
         .output()?;
     let stdout_str = String::from_utf8_lossy(&output.stdout);
     let stdout_str = stdout_str.trim();
@@ -163,11 +198,12 @@ fn get_uptime_macos() -> Result<u64, io::Error> {
 #[cfg(target_os = "macos")]
 fn get_loadavg_macos() -> Result<(f64, f64, f64), io::Error> {
     let output = std::process::Command::new("sysctl")
-        .arg("-n").arg("vm.loadavg")
+        .arg("-n")
+        .arg("vm.loadavg")
         .output()?;
     let stdout_str = String::from_utf8_lossy(&output.stdout);
     let stdout_str = stdout_str.trim();
-    let cleaned = stdout_str.replace('{', "").replace('}', "");
+    let cleaned = stdout_str.replace(['{', '}'], "");
     let parts: Vec<&str> = cleaned.split_whitespace().collect();
     if parts.len() >= 3 {
         let load1: f64 = parts[0].parse().unwrap_or(0.0);
@@ -193,7 +229,10 @@ fn current_time_string() -> String {
     let days_since_epoch = total_secs / 86400;
     let (year, month, day) = unix_days_to_ymd(days_since_epoch);
 
-    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", year, month, day, hours, minutes, seconds)
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        year, month, day, hours, minutes, seconds
+    )
 }
 
 #[cfg(windows)]
@@ -210,13 +249,16 @@ fn current_time_string() -> String {
     let days_since_epoch = total_secs / 86400;
     let (year, month, day) = unix_days_to_ymd(days_since_epoch);
 
-    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", year, month, day, hours, minutes, seconds)
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        year, month, day, hours, minutes, seconds
+    )
 }
 
 #[cfg(windows)]
 fn get_windows_uptime() -> Result<u64, io::Error> {
     let output = std::process::Command::new("wmic")
-        .args(&["os", "get", "LastBootUpTime", "/Value"])
+        .args(["os", "get", "LastBootUpTime", "/Value"])
         .output()?;
     let stdout_str = String::from_utf8_lossy(&output.stdout);
     for line in stdout_str.lines() {
@@ -282,15 +324,15 @@ fn ymd_to_days(year: u64, month: u64, day: u64) -> u64 {
     } else {
         [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
     };
-    for m in 0..(month as usize - 1).min(12) {
-        days += days_in_months[m];
+    for days_in_month in days_in_months.iter().take((month as usize - 1).min(12)) {
+        days += days_in_month;
     }
     days += day - 1;
     days
 }
 
 fn is_leap(year: u64) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
 #[cfg(unix)]
@@ -304,4 +346,17 @@ struct libc_timeval {
 extern "C" {
     #[link_name = "gettimeofday"]
     fn raw_gettimeofday(tv: *mut libc_timeval, tz: *mut u8) -> i32;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_leap;
+
+    #[test]
+    fn leap_year_handles_century_rules() {
+        assert!(is_leap(2000));
+        assert!(is_leap(2024));
+        assert!(!is_leap(1900));
+        assert!(!is_leap(2023));
+    }
 }

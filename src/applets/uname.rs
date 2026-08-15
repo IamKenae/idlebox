@@ -1,4 +1,6 @@
 use crate::core::Applet;
+#[cfg(unix)]
+use std::ffi::c_char;
 use std::io::{self, Write};
 
 pub struct UnameApplet;
@@ -189,11 +191,7 @@ fn get_uname_info() -> Result<UtsName, Box<dyn std::error::Error>> {
 
 #[cfg(not(unix))]
 fn get_uname_info_fallback() -> UtsName {
-    let sysname = if cfg!(windows) {
-        "Windows"
-    } else {
-        "Unknown"
-    };
+    let sysname = if cfg!(windows) { "Windows" } else { "Unknown" };
 
     let nodename = std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
@@ -219,22 +217,22 @@ fn get_uname_info_fallback() -> UtsName {
 #[cfg(target_os = "linux")]
 #[repr(C)]
 struct libc_utsname {
-    sysname: [i8; 65],
-    nodename: [i8; 65],
-    release: [i8; 65],
-    version: [i8; 65],
-    machine: [i8; 65],
-    _domainname: [i8; 65],
+    sysname: [c_char; 65],
+    nodename: [c_char; 65],
+    release: [c_char; 65],
+    version: [c_char; 65],
+    machine: [c_char; 65],
+    _domainname: [c_char; 65],
 }
 
 #[cfg(target_os = "macos")]
 #[repr(C)]
 struct libc_utsname {
-    sysname: [i8; 256],
-    nodename: [i8; 256],
-    release: [i8; 256],
-    version: [i8; 256],
-    machine: [i8; 256],
+    sysname: [c_char; 256],
+    nodename: [c_char; 256],
+    release: [c_char; 256],
+    version: [c_char; 256],
+    machine: [c_char; 256],
 }
 
 #[cfg(unix)]
@@ -243,20 +241,12 @@ extern "C" {
     fn raw_uname(buf: *mut libc_utsname) -> i32;
 }
 
-#[cfg(target_os = "linux")]
-fn c_buf_to_string(buf: &[i8; 65]) -> String {
-    let bytes: Vec<u8> = buf.iter()
-        .take_while(|&&b| b != 0)
-        .map(|&b| b as u8)
+#[cfg(unix)]
+fn c_buf_to_string<const N: usize>(buf: &[c_char; N]) -> String {
+    let bytes: Vec<u8> = buf
+        .iter()
+        .take_while(|&&byte| byte != 0)
+        .map(|&byte| byte.to_ne_bytes()[0])
         .collect();
-    String::from_utf8_lossy(&bytes).to_string()
-}
-
-#[cfg(target_os = "macos")]
-fn c_buf_to_string(buf: &[i8; 256]) -> String {
-    let bytes: Vec<u8> = buf.iter()
-        .take_while(|&&b| b != 0)
-        .map(|&b| b as u8)
-        .collect();
-    String::from_utf8_lossy(&bytes).to_string()
+    String::from_utf8_lossy(&bytes).into_owned()
 }

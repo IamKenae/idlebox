@@ -49,9 +49,22 @@ impl Applet for CatApplet {
 
         for file in files {
             let result = if file == "-" {
-                Self::cat_stdin(&mut out, &mut line_number, number_all, number_nonblank, show_ends)
+                Self::cat_stdin(
+                    &mut out,
+                    &mut line_number,
+                    number_all,
+                    number_nonblank,
+                    show_ends,
+                )
             } else {
-                Self::cat_file(file, &mut out, &mut line_number, number_all, number_nonblank, show_ends)
+                Self::cat_file(
+                    file,
+                    &mut out,
+                    &mut line_number,
+                    number_all,
+                    number_nonblank,
+                    show_ends,
+                )
             };
 
             if let Err(e) = result {
@@ -87,8 +100,19 @@ impl CatApplet {
         show_ends: bool,
     ) -> io::Result<()> {
         let stdin = io::stdin();
-        let reader = BufReader::new(stdin.lock());
-        Self::process_lines(reader, out, line_number, number_all, number_nonblank, show_ends)
+        let mut input = stdin.lock();
+        if !number_all && !number_nonblank && !show_ends {
+            io::copy(&mut input, out)?;
+            return Ok(());
+        }
+        Self::process_lines(
+            BufReader::new(input),
+            out,
+            line_number,
+            number_all,
+            number_nonblank,
+            show_ends,
+        )
     }
 
     fn cat_file<W: Write>(
@@ -99,9 +123,19 @@ impl CatApplet {
         number_nonblank: bool,
         show_ends: bool,
     ) -> io::Result<()> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        Self::process_lines(reader, out, line_number, number_all, number_nonblank, show_ends)
+        let mut file = File::open(path)?;
+        if !number_all && !number_nonblank && !show_ends {
+            io::copy(&mut file, out)?;
+            return Ok(());
+        }
+        Self::process_lines(
+            BufReader::new(file),
+            out,
+            line_number,
+            number_all,
+            number_nonblank,
+            show_ends,
+        )
     }
 
     fn process_lines<R: BufRead, W: Write>(
@@ -118,10 +152,8 @@ impl CatApplet {
 
             let should_number = if number_nonblank {
                 !is_empty
-            } else if number_all {
-                true
             } else {
-                false
+                number_all
             };
 
             if should_number {

@@ -1,4 +1,9 @@
+#[cfg(unix)]
+use crate::core::unix_ffi::{raw_getgrgid, raw_getpwnam, raw_getpwuid};
 use crate::core::Applet;
+#[cfg(unix)]
+use std::ffi::{c_char, CStr};
+#[cfg(unix)]
 use std::io::{self, Write};
 
 pub struct IdApplet;
@@ -49,7 +54,7 @@ impl Applet for IdApplet {
                             }
                         }
                     } else {
-                        eprintln!("id: invalid option -- '{}'", &args[i]);
+                        eprintln!("id: invalid option -- '{}'", args[i]);
                         return Ok(1);
                     }
                 }
@@ -100,7 +105,7 @@ impl Applet for IdApplet {
                         writeln!(out, "{}", pw.gid)?;
                     }
                 } else if groups_only {
-                    let gids = get_supplementary_gids_by_name(&pw.name);
+                    let gids = get_supplementary_gids_by_name(&pw.name, pw.gid);
                     if name_only {
                         let names: Vec<String> = gids
                             .iter()
@@ -113,7 +118,7 @@ impl Applet for IdApplet {
                     }
                 } else {
                     let gname = get_group_name_by_gid(pw.gid).unwrap_or(pw.gid.to_string());
-                    let gids = get_supplementary_gids_by_name(&pw.name);
+                    let gids = get_supplementary_gids_by_name(&pw.name, pw.gid);
                     let groups_str = format_groups(&gids, name_only);
                     writeln!(
                         out,
@@ -182,11 +187,8 @@ impl Applet for IdApplet {
 
     #[cfg(windows)]
     fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
-        let username = std::env::var("USERNAME").unwrap_or_else(|_| "unknown".to_string());
-        let stdout = io::stdout();
-        let mut out = stdout.lock();
-        writeln!(out, "uid=0({}) gid=0", username)?;
-        Ok(0)
+        eprintln!("id: not supported on this platform");
+        Ok(1)
     }
 
     #[cfg(not(any(unix, windows)))]
@@ -215,55 +217,12 @@ struct PasswdInfo {
     gid: u32,
 }
 
-#[cfg(target_os = "linux")]
-#[repr(C)]
-struct Passwd {
-    pw_name: *const i8,
-    pw_passwd: *const i8,
-    pw_uid: u32,
-    pw_gid: u32,
-    pw_gecos: *const i8,
-    pw_dir: *const i8,
-    pw_shell: *const i8,
-}
-
-#[cfg(target_os = "macos")]
-#[repr(C)]
-struct Passwd {
-    pw_name: *const i8,
-    pw_passwd: *const i8,
-    pw_uid: u32,
-    pw_gid: u32,
-    pw_change: i64,
-    pw_class: *const i8,
-    pw_gecos: *const i8,
-    pw_dir: *const i8,
-    pw_shell: *const i8,
-    pw_expire: i64,
-}
-
 #[cfg(unix)]
-#[repr(C)]
-struct Group {
-    gr_name: *const i8,
-    gr_passwd: *const i8,
-    gr_gid: u32,
-    gr_mem: *const *const i8,
-}
-
-#[cfg(unix)]
-fn c_char_to_string(ptr: *const i8) -> String {
+fn c_char_to_string(ptr: *const c_char) -> String {
     if ptr.is_null() {
         return String::new();
     }
-    let mut len = 0;
-    unsafe {
-        while *ptr.add(len) != 0 {
-            len += 1;
-        }
-        let slice = std::slice::from_raw_parts(ptr as *const u8, len);
-        String::from_utf8_lossy(slice).to_string()
-    }
+    unsafe { CStr::from_ptr(ptr).to_string_lossy().into_owned() }
 }
 
 #[cfg(unix)]
@@ -314,30 +273,94 @@ fn get_group_name_by_gid(gid: u32) -> Option<String> {
 
 #[cfg(unix)]
 fn get_groups() -> Vec<u32> {
-    let mut ngroups: i32 = 64;
-    let mut buf: Vec<u32> = vec![0; ngroups as usize];
-    let ret = unsafe { raw_getgroups(&mut ngroups, buf.as_mut_ptr()) };
+    let count = unsafe { raw_getgroups(0, std::ptr::null_mut()) };
+    if count < 0 {
+        return vec![];
+    }
+
+    let mut buf = vec![0; count as usize];
+    let ret = unsafe { raw_getgroups(count, buf.as_mut_ptr()) };
     if ret < 0 {
         return vec![];
     }
     buf.truncate(ret as usize);
+
+    let effective_gid = unsafe { raw_getegid() };
+    if !buf.contains(&effective_gid) {
+        buf.insert(0, effective_gid);
+    }
+
+    // Darwin's process credential list can omit extended directory-service
+    // memberships. The system `id` command includes those memberships, so
+    // merge them without discarding groups that are active on the process.
+    #[cfg(target_os = "macos")]
+    if let Some((username, passwd)) = get_username_by_uid(unsafe { raw_geteuid() })
+        .and_then(|username| get_passwd_by_name(&username).map(|passwd| (username, passwd)))
+    {
+        for gid in get_supplementary_gids_by_name(&username, passwd.gid) {
+            if !buf.contains(&gid) {
+                buf.push(gid);
+            }
+        }
+    }
+
     buf
 }
 
-#[cfg(unix)]
-fn get_supplementary_gids_by_name(username: &str) -> Vec<u32> {
+#[cfg(all(unix, not(target_os = "macos")))]
+fn get_supplementary_gids_by_name(username: &str, primary_gid: u32) -> Vec<u32> {
     let c_name = match std::ffi::CString::new(username) {
         Ok(n) => n,
         Err(_) => return vec![],
     };
-    let mut ngroups: i32 = 64;
-    let mut buf: Vec<i32> = vec![0; ngroups as usize];
-    let ret = unsafe { raw_getgrouplist(c_name.as_ptr(), 0, buf.as_mut_ptr(), &mut ngroups) };
-    if ret < 0 {
+    let mut ngroups = 0;
+    unsafe {
+        raw_getgrouplist(
+            c_name.as_ptr(),
+            primary_gid,
+            std::ptr::null_mut(),
+            &mut ngroups,
+        );
+    }
+    if ngroups <= 0 {
         return vec![];
     }
-    buf.truncate(ret as usize);
+
+    let mut buf: Vec<i32> = vec![0; ngroups as usize];
+    let ret =
+        unsafe { raw_getgrouplist(c_name.as_ptr(), primary_gid, buf.as_mut_ptr(), &mut ngroups) };
+    if ret < 0 || ngroups < 0 {
+        return vec![];
+    }
+    buf.truncate(ngroups as usize);
     buf.iter().map(|&g| g as u32).collect()
+}
+
+#[cfg(target_os = "macos")]
+fn get_supplementary_gids_by_name(username: &str, primary_gid: u32) -> Vec<u32> {
+    let c_name = match std::ffi::CString::new(username) {
+        Ok(name) => name,
+        Err(_) => return vec![],
+    };
+    let mut groups = std::ptr::null_mut();
+    let count = unsafe { raw_getgrouplist_2(c_name.as_ptr(), primary_gid, &mut groups) };
+    if count < 0 {
+        if !groups.is_null() {
+            unsafe {
+                raw_free(groups.cast());
+            }
+        }
+        return vec![];
+    }
+    if groups.is_null() {
+        return vec![];
+    }
+
+    let result = unsafe { std::slice::from_raw_parts(groups, count as usize).to_vec() };
+    unsafe {
+        raw_free(groups.cast());
+    }
+    result
 }
 
 #[cfg(unix)]
@@ -375,18 +398,23 @@ extern "C" {
     #[link_name = "getegid"]
     fn raw_getegid() -> u32;
 
-    #[link_name = "getpwuid"]
-    fn raw_getpwuid(uid: u32) -> *const Passwd;
-
-    #[link_name = "getpwnam"]
-    fn raw_getpwnam(name: *const i8) -> *const Passwd;
-
-    #[link_name = "getgrgid"]
-    fn raw_getgrgid(gid: u32) -> *const Group;
-
     #[link_name = "getgroups"]
-    fn raw_getgroups(size: *mut i32, list: *mut u32) -> i32;
+    fn raw_getgroups(size: i32, list: *mut u32) -> i32;
 
+    #[cfg(not(target_os = "macos"))]
     #[link_name = "getgrouplist"]
-    fn raw_getgrouplist(user: *const i8, group: u32, groups: *mut i32, ngroups: *mut i32) -> i32;
+    fn raw_getgrouplist(
+        user: *const c_char,
+        group: u32,
+        groups: *mut i32,
+        ngroups: *mut i32,
+    ) -> i32;
+
+    #[cfg(target_os = "macos")]
+    #[link_name = "getgrouplist_2"]
+    fn raw_getgrouplist_2(user: *const c_char, group: u32, groups: *mut *mut u32) -> i32;
+
+    #[cfg(target_os = "macos")]
+    #[link_name = "free"]
+    fn raw_free(ptr: *mut std::ffi::c_void);
 }

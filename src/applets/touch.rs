@@ -1,5 +1,5 @@
 use crate::core::Applet;
-use std::fs::File;
+use std::fs::{File, FileTimes, OpenOptions};
 use std::path::Path;
 use std::time::SystemTime;
 
@@ -16,11 +16,12 @@ impl Applet for TouchApplet {
 
     fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let mut files: Vec<&str> = Vec::new();
+        let mut parse_options = true;
 
         for arg in args {
             match arg.as_str() {
-                "--" => {}
-                _ if arg.starts_with('-') && arg.len() > 1 => {
+                "--" if parse_options => parse_options = false,
+                _ if parse_options && arg.starts_with('-') && arg.len() > 1 => {
                     return Err(format!("touch: invalid option -- '{}'", &arg[1..]).into());
                 }
                 _ => files.push(arg),
@@ -43,15 +44,17 @@ impl Applet for TouchApplet {
                     eprintln!("touch: failed to update timestamps for '{}': {}", file, e);
                     had_error = true;
                 }
-            } else {
-                if let Err(e) = File::create(path) {
-                    eprintln!("touch: cannot touch '{}': {}", file, e);
-                    had_error = true;
-                }
+            } else if let Err(e) = File::create(path) {
+                eprintln!("touch: cannot touch '{}': {}", file, e);
+                had_error = true;
             }
         }
 
-        if had_error { Ok(1) } else { Ok(0) }
+        if had_error {
+            Ok(1)
+        } else {
+            Ok(0)
+        }
     }
 
     fn help(&self) {
@@ -65,50 +68,9 @@ impl Applet for TouchApplet {
 }
 
 impl TouchApplet {
-    #[cfg(unix)]
     fn update_timestamps(path: &Path, time: SystemTime) -> std::io::Result<()> {
-        unsafe {
-            let tv = Self::system_time_to_timeval(time);
-            let times = [tv, tv];
-            let ret = utimes(Self::path_to_cstr(path).as_ptr(), times.as_ptr());
-            if ret != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-        }
-
-        Ok(())
+        let file = OpenOptions::new().write(true).open(path)?;
+        let times = FileTimes::new().set_accessed(time).set_modified(time);
+        file.set_times(times)
     }
-
-    #[cfg(unix)]
-    fn system_time_to_timeval(time: SystemTime) -> Timeval {
-        let duration = time.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
-        Timeval {
-            tv_sec: duration.as_secs() as i64,
-            tv_usec: duration.subsec_micros() as i64,
-        }
-    }
-
-    #[cfg(unix)]
-    fn path_to_cstr(path: &Path) -> std::ffi::CString {
-        use std::os::unix::ffi::OsStrExt;
-        std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap()
-    }
-
-    #[cfg(not(unix))]
-    fn update_timestamps(_path: &Path, _time: SystemTime) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-#[cfg(unix)]
-#[derive(Clone, Copy)]
-#[repr(C)]
-struct Timeval {
-    tv_sec: i64,
-    tv_usec: i64,
-}
-
-#[cfg(unix)]
-extern "C" {
-    fn utimes(filename: *const std::ffi::c_char, times: *const Timeval) -> std::ffi::c_int;
 }

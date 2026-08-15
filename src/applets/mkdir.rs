@@ -61,7 +61,11 @@ impl Applet for MkdirApplet {
             }
         }
 
-        if had_error { Ok(1) } else { Ok(0) }
+        if had_error {
+            Ok(1)
+        } else {
+            Ok(0)
+        }
     }
 
     fn help(&self) {

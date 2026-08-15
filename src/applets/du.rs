@@ -92,7 +92,7 @@ impl Applet for DuApplet {
 
         for path in &paths {
             let p = Path::new(path);
-            if !p.exists() {
+            if p.symlink_metadata().is_err() {
                 eprintln!("du: cannot access '{}': No such file or directory", path);
                 exit_code = 1;
                 continue;
@@ -140,8 +140,8 @@ fn disk_usage(metadata: &fs::Metadata) -> u64 {
 }
 
 fn dir_size(path: &Path) -> Result<u64, io::Error> {
-    let metadata = fs::metadata(path)?;
-    if metadata.is_file() {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_dir() {
         return Ok(disk_usage(&metadata));
     }
 
@@ -149,11 +149,11 @@ fn dir_size(path: &Path) -> Result<u64, io::Error> {
 
     for entry in fs::read_dir(path)? {
         let entry = entry?;
-        let em = entry.metadata()?;
-        if em.is_file() {
-            total += disk_usage(&em);
-        } else if em.is_dir() {
+        let em = fs::symlink_metadata(entry.path())?;
+        if em.is_dir() {
             total += dir_size(&entry.path())?;
+        } else {
+            total += disk_usage(&em);
         }
     }
 
@@ -167,9 +167,9 @@ fn du_tree(
     human_readable: bool,
     out: &mut impl Write,
 ) -> Result<u64, io::Error> {
-    let metadata = fs::metadata(path)?;
+    let metadata = fs::symlink_metadata(path)?;
 
-    if metadata.is_file() {
+    if !metadata.is_dir() {
         return Ok(disk_usage(&metadata));
     }
 
@@ -177,11 +177,15 @@ fn du_tree(
 
     for entry in fs::read_dir(path)? {
         let entry = entry?;
-        let em = entry.metadata()?;
-        if em.is_file() {
-            total += disk_usage(&em);
-        } else if em.is_dir() {
-            let child_total = du_tree(&entry.path(), current_depth + 1, max_depth, human_readable, out)?;
+        let em = fs::symlink_metadata(entry.path())?;
+        if em.is_dir() {
+            let child_total = du_tree(
+                &entry.path(),
+                current_depth + 1,
+                max_depth,
+                human_readable,
+                out,
+            )?;
             total += child_total;
             let should_print = if let Some(md) = max_depth {
                 current_depth < md
@@ -189,8 +193,15 @@ fn du_tree(
                 true
             };
             if should_print {
-                writeln!(out, "{}\t{}", format_size(child_total, human_readable), entry.path().to_string_lossy())?;
+                writeln!(
+                    out,
+                    "{}\t{}",
+                    format_size(child_total, human_readable),
+                    entry.path().to_string_lossy()
+                )?;
             }
+        } else {
+            total += disk_usage(&em);
         }
     }
 

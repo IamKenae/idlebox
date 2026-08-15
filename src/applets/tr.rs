@@ -33,8 +33,7 @@ impl Applet for TrApplet {
                     break;
                 }
                 _ if arg.starts_with('-') && arg.len() > 1 && !arg.starts_with("--") => {
-                    let mut chars = arg[1..].chars().peekable();
-                    while let Some(ch) = chars.next() {
+                    for ch in arg[1..].chars() {
                         match ch {
                             'd' => delete = true,
                             's' => squeeze = true,
@@ -54,13 +53,23 @@ impl Applet for TrApplet {
 
         let set1 = Self::expand_set(positional[0]);
 
-        let set2 = if !delete && positional.len() > 1 {
+        let set2 = if positional.len() > 1 {
             Some(Self::expand_set(positional[1]))
         } else {
             None
         };
 
         if !delete && set2.is_none() && !squeeze {
+            eprintln!("tr: missing operand after '{}'", positional[0]);
+            return Ok(1);
+        }
+
+        if !delete && set2.as_ref().is_some_and(Vec::is_empty) {
+            eprintln!("tr: SET2 must not be empty when translating");
+            return Ok(1);
+        }
+
+        if delete && squeeze && set2.is_none() {
             eprintln!("tr: missing operand after '{}'", positional[0]);
             return Ok(1);
         }
@@ -76,40 +85,35 @@ impl Applet for TrApplet {
         let mut last_char: Option<char> = None;
 
         for ch in input.chars() {
-            if delete {
-                if set1.contains(&ch) {
-                    if squeeze {
-                        continue;
+            if delete && set1.contains(&ch) {
+                continue;
+            }
+
+            let translated = if !delete {
+                if let Some(ref s2) = set2 {
+                    if let Some(pos) = set1.iter().position(|&candidate| candidate == ch) {
+                        if pos < s2.len() {
+                            s2[pos]
+                        } else {
+                            *s2.last().expect("non-empty SET2 was validated")
+                        }
+                    } else {
+                        ch
                     }
-                    continue;
-                }
-                if squeeze && last_char == Some(ch) {
-                    continue;
-                }
-                result.push(ch);
-                last_char = Some(ch);
-            } else if let Some(ref s2) = set2 {
-                if let Some(pos) = set1.iter().position(|&c| c == ch) {
-                    let translated = if pos < s2.len() { s2[pos] } else { *s2.last().unwrap() };
-                    if squeeze && last_char == Some(translated) {
-                        continue;
-                    }
-                    result.push(translated);
-                    last_char = Some(translated);
                 } else {
-                    if squeeze && last_char == Some(ch) {
-                        continue;
-                    }
-                    result.push(ch);
-                    last_char = Some(ch);
+                    ch
                 }
             } else {
-                if squeeze && set1.contains(&ch) && last_char == Some(ch) {
-                    continue;
-                }
-                result.push(ch);
-                last_char = Some(ch);
+                ch
+            };
+
+            let squeeze_set = set2.as_ref().unwrap_or(&set1);
+            if squeeze && squeeze_set.contains(&translated) && last_char == Some(translated) {
+                continue;
             }
+
+            result.push(translated);
+            last_char = Some(translated);
         }
 
         write!(out, "{}", result)?;

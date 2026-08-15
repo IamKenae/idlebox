@@ -1,4 +1,5 @@
 use crate::core::Applet;
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Write};
 
@@ -27,18 +28,22 @@ impl Applet for TailApplet {
                     if i >= args.len() {
                         return Err("tail: option requires an argument -- 'n'".into());
                     }
-                    line_count = Some(args[i].parse().map_err(|_| {
-                        format!("tail: invalid number of lines: '{}'", args[i])
-                    })?);
+                    line_count =
+                        Some(args[i].parse().map_err(|_| {
+                            format!("tail: invalid number of lines: '{}'", args[i])
+                        })?);
+                    byte_count = None;
                 }
                 "-c" | "--bytes" => {
                     i += 1;
                     if i >= args.len() {
                         return Err("tail: option requires an argument -- 'c'".into());
                     }
-                    byte_count = Some(args[i].parse().map_err(|_| {
-                        format!("tail: invalid number of bytes: '{}'", args[i])
-                    })?);
+                    byte_count =
+                        Some(args[i].parse().map_err(|_| {
+                            format!("tail: invalid number of bytes: '{}'", args[i])
+                        })?);
+                    line_count = None;
                 }
                 "--" => {
                     files.extend(args[i + 1..].iter().map(|s| s.as_str()));
@@ -46,56 +51,49 @@ impl Applet for TailApplet {
                 }
                 _ if arg.starts_with("--lines=") => {
                     let val = &arg["--lines=".len()..];
-                    line_count = Some(val.parse().map_err(|_| {
-                        format!("tail: invalid number of lines: '{}'", val)
-                    })?);
+                    line_count = Some(
+                        val.parse()
+                            .map_err(|_| format!("tail: invalid number of lines: '{}'", val))?,
+                    );
+                    byte_count = None;
                 }
                 _ if arg.starts_with("--bytes=") => {
                     let val = &arg["--bytes=".len()..];
-                    byte_count = Some(val.parse().map_err(|_| {
-                        format!("tail: invalid number of bytes: '{}'", val)
-                    })?);
+                    byte_count = Some(
+                        val.parse()
+                            .map_err(|_| format!("tail: invalid number of bytes: '{}'", val))?,
+                    );
+                    line_count = None;
                 }
                 _ if arg.starts_with('-') && arg.len() > 1 => {
-                    let mut chars = arg[1..].chars().peekable();
-                    while let Some(ch) = chars.next() {
-                        match ch {
-                            'n' => {
-                                let val: String = chars.collect();
-                                if val.is_empty() {
-                                    i += 1;
-                                    if i >= args.len() {
-                                        return Err("tail: option requires an argument -- 'n'".into());
-                                    }
-                                    line_count = Some(args[i].parse().map_err(|_| {
-                                        format!("tail: invalid number of lines: '{}'", args[i])
-                                    })?);
-                                } else {
-                                    line_count = Some(val.parse().map_err(|_| {
-                                        format!("tail: invalid number of lines: '{}'", val)
-                                    })?);
-                                }
-                                break;
-                            }
-                            'c' => {
-                                let val: String = chars.collect();
-                                if val.is_empty() {
-                                    i += 1;
-                                    if i >= args.len() {
-                                        return Err("tail: option requires an argument -- 'c'".into());
-                                    }
-                                    byte_count = Some(args[i].parse().map_err(|_| {
-                                        format!("tail: invalid number of bytes: '{}'", args[i])
-                                    })?);
-                                } else {
-                                    byte_count = Some(val.parse().map_err(|_| {
-                                        format!("tail: invalid number of bytes: '{}'", val)
-                                    })?);
-                                }
-                                break;
-                            }
-                            _ => return Err(format!("tail: invalid option -- '{}'", ch).into()),
+                    let mut chars = arg[1..].chars();
+                    let option = chars.next().expect("non-empty short option");
+                    let mut value: String = chars.collect();
+                    if value.is_empty() {
+                        i += 1;
+                        if i >= args.len() {
+                            return Err(format!(
+                                "tail: option requires an argument -- '{}'",
+                                option
+                            )
+                            .into());
                         }
+                        value = args[i].clone();
+                    }
+                    match option {
+                        'n' => {
+                            line_count = Some(value.parse().map_err(|_| {
+                                format!("tail: invalid number of lines: '{}'", value)
+                            })?);
+                            byte_count = None;
+                        }
+                        'c' => {
+                            byte_count = Some(value.parse().map_err(|_| {
+                                format!("tail: invalid number of bytes: '{}'", value)
+                            })?);
+                            line_count = None;
+                        }
+                        _ => return Err(format!("tail: invalid option -- '{}'", option).into()),
                     }
                 }
                 _ => files.push(arg),
@@ -129,12 +127,10 @@ impl Applet for TailApplet {
                 } else {
                     Self::tail_lines_stdin(&mut out, lines)
                 }
+            } else if let Some(bytes) = byte_count {
+                Self::tail_bytes_file(file, &mut out, bytes)
             } else {
-                if let Some(bytes) = byte_count {
-                    Self::tail_bytes_file(file, &mut out, bytes)
-                } else {
-                    Self::tail_lines_file(file, &mut out, lines)
-                }
+                Self::tail_lines_file(file, &mut out, lines)
             };
 
             if let Err(e) = result {
@@ -143,7 +139,11 @@ impl Applet for TailApplet {
             }
         }
 
-        if had_error { Ok(1) } else { Ok(0) }
+        if had_error {
+            Ok(1)
+        } else {
+            Ok(0)
+        }
     }
 
     fn help(&self) {
@@ -173,18 +173,27 @@ impl TailApplet {
     }
 
     fn tail_lines_reader<R: BufRead>(reader: R, out: &mut impl Write, n: usize) -> io::Result<()> {
-        let mut ring: Vec<String> = Vec::with_capacity(n);
-
-        for line_result in reader.lines() {
-            let l = line_result?;
-            if ring.len() >= n {
-                ring.remove(0);
-            }
-            ring.push(l);
+        if n == 0 {
+            return Ok(());
         }
 
-        for l in &ring {
-            writeln!(out, "{}", l)?;
+        let mut reader = reader;
+        let mut ring: VecDeque<Vec<u8>> = VecDeque::with_capacity(n);
+        let mut line = Vec::new();
+
+        loop {
+            line.clear();
+            if reader.read_until(b'\n', &mut line)? == 0 {
+                break;
+            }
+            if ring.len() == n {
+                ring.pop_front();
+            }
+            ring.push_back(std::mem::take(&mut line));
+        }
+
+        for line in ring {
+            out.write_all(&line)?;
         }
 
         Ok(())

@@ -1,7 +1,9 @@
+#[cfg(unix)]
+use crate::core::unix_ffi::{raw_getgrnam, raw_getpwnam, raw_getpwuid};
 use crate::core::Applet;
 
 #[cfg(unix)]
-use std::ffi::CString;
+use std::ffi::{c_char, CString};
 #[cfg(unix)]
 use std::path::Path;
 
@@ -107,9 +109,6 @@ impl Applet for ChownApplet {
 
 #[cfg(unix)]
 fn parse_owner_spec(spec: &str) -> Result<(u32, u32), String> {
-    let uid = unsafe { raw_getuid() };
-    let gid = unsafe { raw_getgid() };
-
     if spec.is_empty() {
         return Err("invalid owner spec".to_string());
     }
@@ -118,36 +117,47 @@ fn parse_owner_spec(spec: &str) -> Result<(u32, u32), String> {
         let user_part = &spec[..colon_pos];
         let group_part = &spec[colon_pos + 1..];
 
-        let resolved_uid = if user_part.is_empty() {
-            uid
+        if user_part.is_empty() && group_part.is_empty() {
+            return Err("invalid owner spec".to_string());
+        }
+
+        let (resolved_uid, primary_gid) = if user_part.is_empty() {
+            (u32::MAX, None)
         } else {
-            resolve_uid(user_part)?
+            let (uid, gid) = resolve_user(user_part)?;
+            (uid, gid)
         };
 
         let resolved_gid = if group_part.is_empty() {
-            gid
+            primary_gid.ok_or_else(|| "missing owner before ':'".to_string())?
         } else {
             resolve_gid(group_part)?
         };
 
         Ok((resolved_uid, resolved_gid))
     } else {
-        let resolved_uid = resolve_uid(spec)?;
-        Ok((resolved_uid, gid))
+        let (resolved_uid, _) = resolve_user(spec)?;
+        Ok((resolved_uid, u32::MAX))
     }
 }
 
 #[cfg(unix)]
-fn resolve_uid(s: &str) -> Result<u32, String> {
+fn resolve_user(s: &str) -> Result<(u32, Option<u32>), String> {
     if let Ok(n) = s.parse::<u32>() {
-        return Ok(n);
+        let ptr = unsafe { raw_getpwuid(n) };
+        let primary_gid = if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { (*ptr).pw_gid })
+        };
+        return Ok((n, primary_gid));
     }
     let c_name = CString::new(s).map_err(|_| format!("invalid user name: '{}'", s))?;
     let ptr = unsafe { raw_getpwnam(c_name.as_ptr()) };
     if ptr.is_null() {
         return Err(format!("invalid user: '{}'", s));
     }
-    unsafe { Ok((*ptr).pw_uid) }
+    unsafe { Ok(((*ptr).pw_uid, Some((*ptr).pw_gid))) }
 }
 
 #[cfg(unix)]
@@ -166,11 +176,11 @@ fn resolve_gid(s: &str) -> Result<u32, String> {
 #[cfg(unix)]
 fn apply_chown(path: &str, uid: u32, gid: u32, recursive: bool) -> Result<(), std::io::Error> {
     let p = Path::new(path);
-    let c_path = CString::new(path).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+    let c_path =
+        CString::new(path).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
 
-    let is_symlink = p.symlink_metadata()
-        .map(|m| m.file_type().is_symlink())
-        .unwrap_or(false);
+    let metadata = p.symlink_metadata()?;
+    let is_symlink = metadata.file_type().is_symlink();
 
     let ret = if is_symlink {
         unsafe { raw_lchown(c_path.as_ptr(), uid, gid) }
@@ -183,7 +193,7 @@ fn apply_chown(path: &str, uid: u32, gid: u32, recursive: bool) -> Result<(), st
         return Err(err);
     }
 
-    if recursive && p.is_dir() {
+    if recursive && metadata.is_dir() {
         for entry in std::fs::read_dir(p)? {
             let entry = entry?;
             let entry_path = entry.path();
@@ -196,43 +206,30 @@ fn apply_chown(path: &str, uid: u32, gid: u32, recursive: bool) -> Result<(), st
 }
 
 #[cfg(unix)]
-#[repr(C)]
-struct Passwd {
-    pw_name: *const i8,
-    pw_passwd: *const i8,
-    pw_uid: u32,
-    pw_gid: u32,
-    pw_gecos: *const i8,
-    pw_dir: *const i8,
-    pw_shell: *const i8,
-}
-
-#[cfg(unix)]
-#[repr(C)]
-struct Group {
-    gr_name: *const i8,
-    gr_passwd: *const i8,
-    gr_gid: u32,
-    gr_mem: *const *const i8,
-}
-
-#[cfg(unix)]
 extern "C" {
-    #[link_name = "getuid"]
-    fn raw_getuid() -> u32;
-
-    #[link_name = "getgid"]
-    fn raw_getgid() -> u32;
-
-    #[link_name = "getpwnam"]
-    fn raw_getpwnam(name: *const i8) -> *const Passwd;
-
-    #[link_name = "getgrnam"]
-    fn raw_getgrnam(name: *const i8) -> *const Group;
-
     #[link_name = "chown"]
-    fn raw_chown(path: *const i8, owner: u32, group: u32) -> i32;
+    fn raw_chown(path: *const c_char, owner: u32, group: u32) -> i32;
 
     #[link_name = "lchown"]
-    fn raw_lchown(path: *const i8, owner: u32, group: u32) -> i32;
+    fn raw_lchown(path: *const c_char, owner: u32, group: u32) -> i32;
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::parse_owner_spec;
+
+    #[test]
+    fn owner_only_keeps_group_unchanged() {
+        assert_eq!(parse_owner_spec("12345").unwrap(), (12345, u32::MAX));
+    }
+
+    #[test]
+    fn group_only_keeps_owner_unchanged() {
+        assert_eq!(parse_owner_spec(":23456").unwrap(), (u32::MAX, 23456));
+    }
+
+    #[test]
+    fn explicit_owner_and_group_are_both_applied() {
+        assert_eq!(parse_owner_spec("12345:23456").unwrap(), (12345, 23456));
+    }
 }

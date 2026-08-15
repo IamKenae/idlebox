@@ -62,16 +62,17 @@ impl Applet for RmApplet {
         for target in &targets {
             let path = Path::new(target);
 
-            if !path.exists() && !path.symlink_metadata().is_ok() {
-                if force {
+            let metadata = match path.symlink_metadata() {
+                Ok(metadata) => metadata,
+                Err(_) if force => continue,
+                Err(_) => {
+                    eprintln!("rm: cannot remove '{}': No such file or directory", target);
+                    had_error = true;
                     continue;
                 }
-                eprintln!("rm: cannot remove '{}': No such file or directory", target);
-                had_error = true;
-                continue;
-            }
+            };
 
-            let result = if path.is_dir() {
+            let result = if metadata.is_dir() {
                 if !recursive {
                     eprintln!("rm: cannot remove '{}': Is a directory", target);
                     had_error = true;
@@ -88,7 +89,11 @@ impl Applet for RmApplet {
             }
         }
 
-        if had_error { Ok(1) } else { Ok(0) }
+        if had_error {
+            Ok(1)
+        } else {
+            Ok(0)
+        }
     }
 
     fn help(&self) {
