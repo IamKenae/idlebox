@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use crate::core::unix_ffi::{raw_getgrgid, raw_getpwnam, raw_getpwuid};
 use crate::core::Applet;
 #[cfg(unix)]
 use std::io::{self, Write};
@@ -50,7 +52,7 @@ impl Applet for IdApplet {
                             }
                         }
                     } else {
-                        eprintln!("id: invalid option -- '{}'", &args[i]);
+                        eprintln!("id: invalid option -- '{}'", args[i]);
                         return Ok(1);
                     }
                 }
@@ -213,42 +215,6 @@ struct PasswdInfo {
     gid: u32,
 }
 
-#[cfg(target_os = "linux")]
-#[repr(C)]
-struct Passwd {
-    pw_name: *const i8,
-    pw_passwd: *const i8,
-    pw_uid: u32,
-    pw_gid: u32,
-    pw_gecos: *const i8,
-    pw_dir: *const i8,
-    pw_shell: *const i8,
-}
-
-#[cfg(target_os = "macos")]
-#[repr(C)]
-struct Passwd {
-    pw_name: *const i8,
-    pw_passwd: *const i8,
-    pw_uid: u32,
-    pw_gid: u32,
-    pw_change: i64,
-    pw_class: *const i8,
-    pw_gecos: *const i8,
-    pw_dir: *const i8,
-    pw_shell: *const i8,
-    pw_expire: i64,
-}
-
-#[cfg(unix)]
-#[repr(C)]
-struct Group {
-    gr_name: *const i8,
-    gr_passwd: *const i8,
-    gr_gid: u32,
-    gr_mem: *const *const i8,
-}
-
 #[cfg(unix)]
 fn c_char_to_string(ptr: *const i8) -> String {
     if ptr.is_null() {
@@ -394,15 +360,6 @@ extern "C" {
 
     #[link_name = "getegid"]
     fn raw_getegid() -> u32;
-
-    #[link_name = "getpwuid"]
-    fn raw_getpwuid(uid: u32) -> *const Passwd;
-
-    #[link_name = "getpwnam"]
-    fn raw_getpwnam(name: *const i8) -> *const Passwd;
-
-    #[link_name = "getgrgid"]
-    fn raw_getgrgid(gid: u32) -> *const Group;
 
     #[link_name = "getgroups"]
     fn raw_getgroups(size: i32, list: *mut u32) -> i32;

@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use crate::core::unix_ffi::raw_getpwnam;
 use crate::core::Applet;
 
 #[cfg(unix)]
@@ -94,7 +96,7 @@ impl Applet for SuApplet {
                             }
                         }
                     } else {
-                        eprintln!("su: invalid option -- '{}'", &args[i]);
+                        eprintln!("su: invalid option -- '{}'", args[i]);
                         return Ok(1);
                     }
                 }
@@ -265,34 +267,6 @@ struct PasswdInfo {
     shell: String,
 }
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
-#[repr(C)]
-struct Passwd {
-    pw_name: *const i8,
-    pw_passwd: *const i8,
-    pw_uid: u32,
-    pw_gid: u32,
-    pw_gecos: *const i8,
-    pw_dir: *const i8,
-    pw_shell: *const i8,
-}
-
-#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
-#[repr(C)]
-struct Passwd {
-    pw_name: *const i8,
-    pw_passwd: *const i8,
-    pw_uid: u32,
-    pw_gid: u32,
-    pw_change: i64,
-    pw_class: *const i8,
-    pw_gecos: *const i8,
-    pw_dir: *const i8,
-    pw_shell: *const i8,
-    pw_expire: i64,
-    pw_fields: i32,
-}
-
 #[cfg(unix)]
 fn c_char_to_string(ptr: *const i8) -> String {
     if ptr.is_null() {
@@ -329,9 +303,6 @@ fn get_passwd_by_name(name: &str) -> Option<PasswdInfo> {
 extern "C" {
     #[link_name = "getuid"]
     fn raw_getuid() -> u32;
-
-    #[link_name = "getpwnam"]
-    fn raw_getpwnam(name: *const i8) -> *const Passwd;
 
     #[link_name = "fork"]
     fn raw_fork() -> i32;

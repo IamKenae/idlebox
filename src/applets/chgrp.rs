@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use crate::core::unix_ffi::raw_getgrnam;
 use crate::core::Applet;
 
 #[cfg(unix)]
@@ -152,19 +154,7 @@ fn apply_chgrp(path: &str, uid: u32, gid: u32, recursive: bool) -> Result<(), st
 }
 
 #[cfg(unix)]
-#[repr(C)]
-struct Group {
-    gr_name: *const i8,
-    gr_passwd: *const i8,
-    gr_gid: u32,
-    gr_mem: *const *const i8,
-}
-
-#[cfg(unix)]
 extern "C" {
-    #[link_name = "getgrnam"]
-    fn raw_getgrnam(name: *const i8) -> *const Group;
-
     #[link_name = "chown"]
     fn raw_chown(path: *const i8, owner: u32, group: u32) -> i32;
 

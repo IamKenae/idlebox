@@ -203,7 +203,7 @@ fn get_loadavg_macos() -> Result<(f64, f64, f64), io::Error> {
         .output()?;
     let stdout_str = String::from_utf8_lossy(&output.stdout);
     let stdout_str = stdout_str.trim();
-    let cleaned = stdout_str.replace('{', "").replace('}', "");
+    let cleaned = stdout_str.replace(['{', '}'], "");
     let parts: Vec<&str> = cleaned.split_whitespace().collect();
     if parts.len() >= 3 {
         let load1: f64 = parts[0].parse().unwrap_or(0.0);

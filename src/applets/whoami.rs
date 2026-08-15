@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use crate::core::unix_ffi::raw_getpwuid;
 use crate::core::Applet;
 use std::io::{self, Write};
 
@@ -83,22 +85,7 @@ fn c_char_to_string(ptr: *const i8) -> String {
 }
 
 #[cfg(unix)]
-#[repr(C)]
-struct Passwd {
-    pw_name: *const i8,
-    pw_passwd: *const i8,
-    pw_uid: u32,
-    pw_gid: u32,
-    pw_gecos: *const i8,
-    pw_dir: *const i8,
-    pw_shell: *const i8,
-}
-
-#[cfg(unix)]
 extern "C" {
     #[link_name = "geteuid"]
     fn raw_geteuid() -> u32;
-
-    #[link_name = "getpwuid"]
-    fn raw_getpwuid(uid: u32) -> *const Passwd;
 }

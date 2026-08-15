@@ -343,16 +343,16 @@ fn parse_mount_line(line: &str) -> Option<(String, String)> {
 #[cfg(target_os = "macos")]
 fn statfs_macos(path: &str) -> Result<(String, String), io::Error> {
     let output = std::process::Command::new("df")
-        .args(&["-P", "-k", path])
+        .args(["-P", "-k", path])
         .output()?;
     let stdout_str = String::from_utf8_lossy(&output.stdout);
     let lines: Vec<&str> = stdout_str.trim().lines().collect();
     if lines.len() < 2 {
-        return Err(io::Error::new(io::ErrorKind::Other, "df output too short"));
+        return Err(io::Error::other("df output too short"));
     }
     let parts: Vec<&str> = lines[1].split_whitespace().collect();
     if parts.len() < 5 {
-        return Err(io::Error::new(io::ErrorKind::Other, "unexpected df format"));
+        return Err(io::Error::other("unexpected df format"));
     }
     let device = parts[0].to_string();
     let info = format!("{} {} {} {}", parts[1], parts[2], parts[3], parts[4]);

@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use crate::core::unix_ffi::{raw_getgrnam, raw_getpwnam, raw_getpwuid};
 use crate::core::Applet;
 
 #[cfg(unix)]
@@ -204,37 +206,7 @@ fn apply_chown(path: &str, uid: u32, gid: u32, recursive: bool) -> Result<(), st
 }
 
 #[cfg(unix)]
-#[repr(C)]
-struct Passwd {
-    pw_name: *const i8,
-    pw_passwd: *const i8,
-    pw_uid: u32,
-    pw_gid: u32,
-    pw_gecos: *const i8,
-    pw_dir: *const i8,
-    pw_shell: *const i8,
-}
-
-#[cfg(unix)]
-#[repr(C)]
-struct Group {
-    gr_name: *const i8,
-    gr_passwd: *const i8,
-    gr_gid: u32,
-    gr_mem: *const *const i8,
-}
-
-#[cfg(unix)]
 extern "C" {
-    #[link_name = "getpwnam"]
-    fn raw_getpwnam(name: *const i8) -> *const Passwd;
-
-    #[link_name = "getpwuid"]
-    fn raw_getpwuid(uid: u32) -> *const Passwd;
-
-    #[link_name = "getgrnam"]
-    fn raw_getgrnam(name: *const i8) -> *const Group;
-
     #[link_name = "chown"]
     fn raw_chown(path: *const i8, owner: u32, group: u32) -> i32;
 
