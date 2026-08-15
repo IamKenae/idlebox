@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{human_size, Applet};
 use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
@@ -214,16 +214,5 @@ fn format_size(bytes: u64, human_readable: bool) -> String {
         return format!("{}", kb);
     }
 
-    const UNITS: &[&str] = &["B", "K", "M", "G", "T", "P"];
-    let mut size = bytes as f64;
-    let mut idx = 0;
-    while size >= 1024.0 && idx < UNITS.len() - 1 {
-        size /= 1024.0;
-        idx += 1;
-    }
-    if idx == 0 {
-        format!("{}{}", bytes, UNITS[0])
-    } else {
-        format!("{:.0}{}", size, UNITS[idx])
-    }
+    human_size(bytes, true, false)
 }

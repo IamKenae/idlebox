@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{human_size, Applet};
 use std::fs::{self, DirEntry, Metadata};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -151,7 +151,7 @@ impl LsApplet {
             }
         });
 
-        entries.sort_by(|a, b| {
+        entries.sort_unstable_by(|a, b| {
             a.file_name()
                 .to_string_lossy()
                 .cmp(&b.file_name().to_string_lossy())
@@ -473,20 +473,7 @@ impl LsApplet {
     }
 
     fn human_readable_size(size: u64) -> String {
-        const UNITS: &[&str] = &["", "K", "M", "G", "T", "P"];
-        let mut size_f = size as f64;
-        let mut unit_idx = 0;
-
-        while size_f >= 1024.0 && unit_idx < UNITS.len() - 1 {
-            size_f /= 1024.0;
-            unit_idx += 1;
-        }
-
-        if unit_idx == 0 {
-            format!("{}{}", size, UNITS[unit_idx])
-        } else {
-            format!("{:.1}{}", size_f, UNITS[unit_idx])
-        }
+        human_size(size, false, true)
     }
 
     fn get_color(metadata: &Metadata, path: PathBuf) -> Option<&'static str> {

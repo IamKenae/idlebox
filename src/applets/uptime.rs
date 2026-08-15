@@ -41,7 +41,7 @@ impl Applet for UptimeApplet {
 
         writeln!(
             out,
-            " {}  {},  1 user,  load average: {:.2}, {:.2}, {:.2}",
+            " {}  {},  1 user,  load average: {}, {}, {}",
             current_time, uptime_str, load1, load5, load15
         )?;
 
@@ -77,7 +77,7 @@ impl Applet for UptimeApplet {
 
         writeln!(
             out,
-            " {}  {},  1 user,  load average: {:.2}, {:.2}, {:.2}",
+            " {}  {},  1 user,  load average: {}, {}, {}",
             current_time, uptime_str, load1, load5, load15
         )?;
 
@@ -138,14 +138,12 @@ fn parse_uptime_linux() -> Result<u64, io::Error> {
             "empty /proc/uptime",
         ));
     }
-    let secs: f64 = parts[0]
-        .parse()
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid uptime value"))?;
-    Ok(secs as u64)
+    parse_decimal_seconds(parts[0])
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid uptime value"))
 }
 
 #[cfg(target_os = "linux")]
-fn parse_loadavg_linux() -> Result<(f64, f64, f64, u32, u32), io::Error> {
+fn parse_loadavg_linux() -> Result<(LoadAverage, LoadAverage, LoadAverage, u32, u32), io::Error> {
     use std::fs;
     let content = fs::read_to_string("/proc/loadavg")?;
     let parts: Vec<&str> = content.split_whitespace().collect();
@@ -155,15 +153,12 @@ fn parse_loadavg_linux() -> Result<(f64, f64, f64, u32, u32), io::Error> {
             "unexpected /proc/loadavg format",
         ));
     }
-    let load1: f64 = parts[0]
-        .parse()
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid load1"))?;
-    let load5: f64 = parts[1]
-        .parse()
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid load5"))?;
-    let load15: f64 = parts[2]
-        .parse()
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid load15"))?;
+    let load1 = format_load_average(parts[0])
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid load1"))?;
+    let load5 = format_load_average(parts[1])
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid load5"))?;
+    let load15 = format_load_average(parts[2])
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid load15"))?;
 
     let task_parts: Vec<&str> = parts[3].split('/').collect();
     let running: u32 = task_parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
@@ -196,7 +191,7 @@ fn get_uptime_macos() -> Result<u64, io::Error> {
 }
 
 #[cfg(target_os = "macos")]
-fn get_loadavg_macos() -> Result<(f64, f64, f64), io::Error> {
+fn get_loadavg_macos() -> Result<(LoadAverage, LoadAverage, LoadAverage), io::Error> {
     let output = std::process::Command::new("sysctl")
         .arg("-n")
         .arg("vm.loadavg")
@@ -206,13 +201,66 @@ fn get_loadavg_macos() -> Result<(f64, f64, f64), io::Error> {
     let cleaned = stdout_str.replace(['{', '}'], "");
     let parts: Vec<&str> = cleaned.split_whitespace().collect();
     if parts.len() >= 3 {
-        let load1: f64 = parts[0].parse().unwrap_or(0.0);
-        let load5: f64 = parts[1].parse().unwrap_or(0.0);
-        let load15: f64 = parts[2].parse().unwrap_or(0.0);
+        let load1 = format_load_average(parts[0]).unwrap_or(LoadAverage::ZERO);
+        let load5 = format_load_average(parts[1]).unwrap_or(LoadAverage::ZERO);
+        let load15 = format_load_average(parts[2]).unwrap_or(LoadAverage::ZERO);
         Ok((load1, load5, load15))
     } else {
-        Ok((0.0, 0.0, 0.0))
+        Ok((LoadAverage::ZERO, LoadAverage::ZERO, LoadAverage::ZERO))
     }
+}
+
+#[cfg(target_os = "linux")]
+fn parse_decimal_seconds(value: &str) -> Option<u64> {
+    let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
+    if whole.is_empty()
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+    whole.parse().ok()
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[derive(Clone, Copy)]
+struct LoadAverage(u128);
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+impl LoadAverage {
+    #[cfg(target_os = "macos")]
+    const ZERO: Self = Self(0);
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+impl std::fmt::Display for LoadAverage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{}.{:02}", self.0 / 100, self.0 % 100)
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn format_load_average(value: &str) -> Option<LoadAverage> {
+    let (whole, fraction) = value.split_once('.').unwrap_or((value, ""));
+    if whole.is_empty()
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return None;
+    }
+
+    let whole: u128 = whole.parse().ok()?;
+    let mut digits = fraction.bytes().map(|byte| u128::from(byte - b'0'));
+    let tenths = digits.next().unwrap_or(0);
+    let hundredths = digits.next().unwrap_or(0);
+    let third = digits.next().unwrap_or(0);
+    let round_up =
+        third > 5 || (third == 5 && (hundredths % 2 == 1 || digits.any(|digit| digit != 0)));
+    let scaled = whole
+        .checked_mul(100)?
+        .checked_add(tenths * 10 + hundredths + u128::from(round_up))?;
+
+    Some(LoadAverage(scaled))
 }
 
 #[cfg(unix)]
@@ -350,6 +398,8 @@ extern "C" {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    use super::format_load_average;
     use super::is_leap;
 
     #[test]
@@ -358,5 +408,18 @@ mod tests {
         assert!(is_leap(2024));
         assert!(!is_leap(1900));
         assert!(!is_leap(2023));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn load_average_has_two_decimal_places() {
+        let formatted = |value| format_load_average(value).map(|load| load.to_string());
+        assert_eq!(formatted("1"), Some("1.00".to_string()));
+        assert_eq!(formatted("1.2"), Some("1.20".to_string()));
+        assert_eq!(formatted("1.234"), Some("1.23".to_string()));
+        assert_eq!(formatted("1.225"), Some("1.22".to_string()));
+        assert_eq!(formatted("1.235"), Some("1.24".to_string()));
+        assert_eq!(formatted("1.999"), Some("2.00".to_string()));
+        assert_eq!(formatted("bad"), None);
     }
 }

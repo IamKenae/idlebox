@@ -15,6 +15,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  LINUX_RELEASE_TOOLCHAIN: nightly-2026-07-26
 
 jobs:
   test:
@@ -27,17 +28,17 @@ jobs:
           - name: Linux x86_64
             os: ubuntu-latest
             artifact_name: idlebox-linux-x86_64
-            binary_name: idlebox
+            binary_path: target/x86_64-unknown-linux-gnu/release/idlebox
             platform_lint: false
           - name: macOS native
             os: macos-latest
             artifact_name: idlebox-macos-native
-            binary_name: idlebox
+            binary_path: target/release/idlebox
             platform_lint: true
           - name: Windows x86_64
             os: windows-latest
             artifact_name: idlebox-windows-x86_64
-            binary_name: idlebox.exe
+            binary_path: target/release/idlebox.exe
             platform_lint: true
 
     steps:
@@ -59,12 +60,31 @@ jobs:
       - name: Test all targets
         run: cargo test --all-targets --verbose
 
-      - name: Build release binary
-        run: cargo build --release --verbose
+      - name: Install size-optimized Linux release toolchain
+        if: runner.os == 'Linux'
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.LINUX_RELEASE_TOOLCHAIN }}
+          components: rust-src
+
+      - name: Build size-optimized Linux release binary
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cargo "+${LINUX_RELEASE_TOOLCHAIN}" build \
+            --release \
+            --locked \
+            --target x86_64-unknown-linux-gnu \
+            -Z build-std=std,panic_abort \
+            -Z build-std-features=optimize_for_size
+
+      - name: Build native release binary
+        if: runner.os != 'Linux'
+        run: cargo build --release --locked --verbose
 
       - name: Upload release binary
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: target/release/${{ matrix.binary_name }}
+          path: ${{ matrix.binary_path }}
           retention-days: 14

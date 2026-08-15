@@ -223,7 +223,7 @@ impl CutApplet {
                             }
                         }
                     }
-                    selected.sort_by_key(|&(i, _)| i);
+                    selected.sort_unstable_by_key(|&(i, _)| i);
                     let values: Vec<&str> = selected.into_iter().map(|(_, v)| v).collect();
                     writeln!(out, "{}", values.join(&delimiter.to_string()))?;
                 }
@@ -248,7 +248,7 @@ impl CutApplet {
                             }
                         }
                     }
-                    selected.sort_by_key(|&(i, _)| i);
+                    selected.sort_unstable_by_key(|&(i, _)| i);
                     writeln!(
                         out,
                         "{}",

@@ -15,8 +15,10 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  GLIBC_MAX_BYTES: 819200
-  MUSL_MAX_BYTES: 921600
+  LINUX_RELEASE_TOOLCHAIN: nightly-2026-07-26
+  MUSL_BUILD_IMAGE: rustlang/rust:nightly-alpine@sha256:4c0d0569e00356c10a89078870693092e0aaef2515841c33f9e8ca22ce251d6d
+  GLIBC_MAX_BYTES: 460800
+  MUSL_MAX_BYTES: 460800
 
 jobs:
   size-budget:
@@ -27,7 +29,11 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.85.0
+      - name: Install size-optimized glibc release toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.LINUX_RELEASE_TOOLCHAIN }}
+          components: rust-src
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -35,7 +41,13 @@ jobs:
       - name: Build glibc release
         env:
           CARGO_TARGET_DIR: target/size-glibc
-        run: cargo build --release
+        run: |
+          cargo "+${LINUX_RELEASE_TOOLCHAIN}" build \
+            --release \
+            --locked \
+            --target x86_64-unknown-linux-gnu \
+            -Z build-std=std,panic_abort \
+            -Z build-std-features=optimize_for_size
 
       - name: Build musl release
         shell: bash
@@ -47,15 +59,21 @@ jobs:
             --mount "type=bind,src=${RUNNER_TEMP}/idlebox-size-musl,dst=/target" \
             --env CARGO_TARGET_DIR=/target \
             --workdir /src \
-            rust:1.85-alpine \
-            cargo build --release
+            "${MUSL_BUILD_IMAGE}" \
+            sh -euc 'rustup component add rust-src
+              cargo build \
+                --release \
+                --locked \
+                --target x86_64-unknown-linux-musl \
+                -Z build-std=std,panic_abort \
+                -Z build-std-features=optimize_for_size'
 
       - name: Enforce size budgets
         shell: bash
         run: |
           set -euo pipefail
-          glibc_bytes=$(wc -c < target/size-glibc/release/idlebox)
-          musl_bytes=$(wc -c < "${RUNNER_TEMP}/idlebox-size-musl/release/idlebox")
+          glibc_bytes=$(wc -c < target/size-glibc/x86_64-unknown-linux-gnu/release/idlebox)
+          musl_bytes=$(wc -c < "${RUNNER_TEMP}/idlebox-size-musl/x86_64-unknown-linux-musl/release/idlebox")
           glibc_remaining=$((GLIBC_MAX_BYTES - glibc_bytes))
           musl_remaining=$((MUSL_MAX_BYTES - musl_bytes))
 

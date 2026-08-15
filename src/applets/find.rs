@@ -134,7 +134,7 @@ fn find_recursive(
 
     if file_type.is_dir() {
         let mut entries: Vec<_> = fs::read_dir(path)?.collect::<Result<_, _>>()?;
-        entries.sort_by_key(|entry| entry.file_name());
+        entries.sort_unstable_by_key(|entry| entry.file_name());
 
         for entry in entries {
             let entry_path = entry.path();
