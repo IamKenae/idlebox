@@ -61,7 +61,7 @@ BusyBox 承载了嵌入式 Linux 的半壁江山。IdleBox 希望以现代语言
 
 | Applet | 说明 | 亮点 |
 |--------|------|------|
-| `echo` | 输出文本到标准输出 | 支持 `-n` 不换行、`-e` 转义解释 |
+| `echo` | 输出文本到标准输出 | 支持 `-n` 不换行，流式写出参数而不再拼接第二份完整字符串 |
 | `cat` | 连接文件并输出到标准输出 | 支持 `-n` 行号、`-b` 非空行号、`-A` 显示不可见字符、stdin 管道 |
 | `ls` | 列出目录内容 | **ANSI 炫彩输出**：目录蓝色、可执行文件绿色、压缩包红色、链接青色；支持 `-l` 长格式、`-a` 隐藏文件、`-h` 人类可读大小 |
 | `mkdir` | 创建目录 | 支持 `-p` 嵌套创建、一次创建多个目录 |
@@ -87,9 +87,9 @@ BusyBox 承载了嵌入式 Linux 的半壁江山。IdleBox 希望以现代语言
 | `test` / `[` | 评估条件表达式 | POSIX 兼容的 `test` 和 `[` 两种形态、文件/字符串/数值测试、逻辑运算符 |
 | `expr` | 评估表达式并输出结果 | 算术、比较、逻辑、字符串操作；递归下降解析器 |
 | `find` | 在目录层次结构中搜索文件 | 通配符 `-name`、`-type`、`-maxdepth`、`-empty`；纯 Rust 遍历 |
-| `wc` | 打印换行、单词和字节计数 | `-l`/`-w`/`-c`/`-m`、多文件 `total`、stdin 管道 |
+| `wc` | 打印换行、单词和字节计数 | 8 KiB 流式计数、`-l`/`-w`/`-c`/`-m`、多文件 `total`、stdin 管道 |
 | `sort` | 排序文本文件的行 | `-r` 反转、`-n` 数值、`-u` 去重、多文件合并 |
-| `uniq` | 报告或省略重复行 | `-c` 计数、`-d` 重复、`-u` 唯一、`-i` 忽略大小写 |
+| `uniq` | 报告或省略重复行 | 常量级分组内存、可选输出文件、`-c`/`-d`/`-u`/`-i` |
 | `cut` | 从每行中移除选定部分 | `-d` 分隔符、`-f` 字段、`-c` 字符、范围支持 |
 | `tr` | 转换或删除字符 | SET1/SET2 转换、`-d` 删除、`-s` 压缩、范围扩展 |
 | `id` | 打印真实与有效用户及组 ID | `-u`/`-g`/`-G`/`-n` 选项、按用户名查询、POSIX libc FFI |
@@ -103,6 +103,8 @@ BusyBox 承载了嵌入式 Linux 的半壁江山。IdleBox 希望以现代语言
 ## 快速开始
 
 ### 构建
+
+需要 Rust 1.85 或更高版本；最低工具链同时在 Alpine Linux/musl 环境验证。
 
 ```bash
 # Debug 构建
@@ -122,6 +124,12 @@ ls -lh target/release/idlebox
 idlebox echo "Hello, IdleBox!"
 idlebox cat -n README.md
 idlebox ls --color=auto -lah
+
+# 查看命令帮助与版本信息
+idlebox --help
+idlebox help wc
+idlebox --list
+idlebox --version
 
 # 自动安装（为所有 Applet 创建 launcher）
 idlebox --install              # Unix: /usr/local/bin；Windows: %LOCALAPPDATA%\IdleBox\bin

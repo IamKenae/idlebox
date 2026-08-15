@@ -61,7 +61,7 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 
 | Applet | Description | Highlights |
 |--------|-------------|------------|
-| `echo` | Print text to standard output | Supports `-n` (no newline), `-e` (escape interpretation) |
+| `echo` | Print text to standard output | Supports `-n` (no newline), streams arguments without assembling a second full output string |
 | `cat` | Concatenate files and print to standard output | Supports `-n` line numbers, `-b` non-blank numbering, `-A` show invisibles, stdin pipe |
 | `ls` | List directory contents | **ANSI colorized output**: dirs in blue, executables in green, archives in red, symlinks in cyan; supports `-l` long format, `-a` hidden files, `-h` human-readable sizes |
 | `mkdir` | Create directories | Supports `-p` for nested creation, multiple directories in one call |
@@ -87,9 +87,9 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 | `test` / `[` | Evaluate conditional expressions | POSIX-compatible `test` and `[` forms, file/string/numeric tests, logical operators |
 | `expr` | Evaluate expressions and print result | Arithmetic, comparison, logical, string ops; recursive descent parser |
 | `find` | Search for files in a directory hierarchy | Glob `-name`, `-type`, `-maxdepth`, `-empty`; pure Rust traversal |
-| `wc` | Print newline, word, and byte counts | `-l`/`-w`/`-c`/`-m`, multi-file with `total`, stdin pipe |
+| `wc` | Print newline, word, and byte counts | 8 KiB streaming counter, `-l`/`-w`/`-c`/`-m`, multi-file `total`, stdin pipe |
 | `sort` | Sort lines of text files | `-r` reverse, `-n` numeric, `-u` unique, multi-file merge |
-| `uniq` | Report or omit repeated lines | `-c` count, `-d` repeated, `-u` unique, `-i` ignore-case |
+| `uniq` | Report or omit repeated lines | Constant-memory group processing, optional output file, `-c`/`-d`/`-u`/`-i` |
 | `cut` | Remove sections from each line | `-d` delimiter, `-f` fields, `-c` characters, range support |
 | `tr` | Translate or delete characters | SET1/SET2 translation, `-d` delete, `-s` squeeze, range expansion |
 | `id` | Print real and effective user and group IDs | `-u`/`-g`/`-G`/`-n` flags, query by user name, POSIX libc FFI |
@@ -103,6 +103,8 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 ## Quick Start
 
 ### Build
+
+Requires Rust 1.85 or newer. The minimum toolchain is also validated on Alpine Linux/musl.
 
 ```bash
 # Debug build
@@ -122,6 +124,12 @@ ls -lh target/release/idlebox
 idlebox echo "Hello, IdleBox!"
 idlebox cat -n README.md
 idlebox ls --color=auto -lah
+
+# Discover commands and version information
+idlebox --help
+idlebox help wc
+idlebox --list
+idlebox --version
 
 # Automated install (create launchers for all applets)
 idlebox --install              # Unix: /usr/local/bin; Windows: %LOCALAPPDATA%\IdleBox\bin
