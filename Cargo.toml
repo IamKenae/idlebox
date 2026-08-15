@@ -2,6 +2,7 @@
 name = "idlebox"
 version = "0.2.0"
 edition = "2021"
+rust-version = "1.85"
 authors = ["IdleBox Contributors"]
 license = "Apache-2.0"
 description = "A modern, lightweight BusyBox alternative written in Rust"

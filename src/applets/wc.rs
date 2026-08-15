@@ -1,14 +1,23 @@
 use crate::core::Applet;
 use std::fs::File;
-use std::io::{self, BufReader, Read, Write};
+use std::io::{self, Read, Write};
 
 pub struct WcApplet;
 
+#[derive(Default)]
 struct Counts {
     lines: usize,
     words: usize,
     bytes: usize,
     chars: usize,
+}
+
+#[derive(Clone, Copy)]
+struct CountMode {
+    lines: bool,
+    words: bool,
+    bytes: bool,
+    chars: bool,
 }
 
 impl Applet for WcApplet {
@@ -60,12 +69,17 @@ impl Applet for WcApplet {
             i += 1;
         }
 
-        let default_mode = !show_lines && !show_words && !show_bytes && !show_chars;
-        if default_mode {
+        if !show_lines && !show_words && !show_bytes && !show_chars {
             show_lines = true;
             show_words = true;
             show_bytes = true;
         }
+        let mode = CountMode {
+            lines: show_lines,
+            words: show_words,
+            bytes: show_bytes,
+            chars: show_chars,
+        };
 
         if files.is_empty() {
             files.push("-");
@@ -73,57 +87,37 @@ impl Applet for WcApplet {
 
         let stdout = io::stdout();
         let mut out = stdout.lock();
-        let mut total = Counts {
-            lines: 0,
-            words: 0,
-            bytes: 0,
-            chars: 0,
-        };
+        let mut total = Counts::default();
         let mut had_error = false;
 
         for file in &files {
             let result = if *file == "-" {
-                Self::count_stdin()
+                Self::count_stdin(mode)
             } else {
-                Self::count_file(file)
+                Self::count_file(file, mode)
             };
 
             match result {
                 Ok(counts) => {
                     let label = if *file == "-" { None } else { Some(*file) };
-                    Self::print_counts(
-                        &mut out, &counts, show_lines, show_words, show_bytes, show_chars, label,
-                    )?;
+                    Self::print_counts(&mut out, &counts, mode, label)?;
                     total.lines += counts.lines;
                     total.words += counts.words;
                     total.bytes += counts.bytes;
                     total.chars += counts.chars;
                 }
-                Err(e) => {
-                    eprintln!("wc: {}: {}", file, e);
+                Err(error) => {
+                    eprintln!("wc: {}: {}", file, error);
                     had_error = true;
                 }
             }
         }
 
         if files.len() > 1 {
-            let total_label: Option<&str> = Some("total");
-            Self::print_counts(
-                &mut out,
-                &total,
-                show_lines,
-                show_words,
-                show_bytes,
-                show_chars,
-                total_label,
-            )?;
+            Self::print_counts(&mut out, &total, mode, Some("total"))?;
         }
 
-        if had_error {
-            Ok(1)
-        } else {
-            Ok(0)
-        }
+        Ok(i32::from(had_error))
     }
 
     fn help(&self) {
@@ -142,63 +136,201 @@ impl Applet for WcApplet {
 }
 
 impl WcApplet {
-    fn count_file(path: &str) -> io::Result<Counts> {
-        let file = File::open(path)?;
-        let mut reader = BufReader::new(file);
-        Self::count_reader(&mut reader)
+    const BUFFER_SIZE: usize = 8 * 1024;
+
+    fn count_file(path: &str, mode: CountMode) -> io::Result<Counts> {
+        let mut file = File::open(path)?;
+        Self::count_reader(&mut file, mode)
     }
 
-    fn count_stdin() -> io::Result<Counts> {
+    fn count_stdin(mode: CountMode) -> io::Result<Counts> {
         let stdin = io::stdin();
-        let mut reader = BufReader::new(stdin.lock());
-        Self::count_reader(&mut reader)
+        let mut input = stdin.lock();
+        Self::count_reader(&mut input, mode)
     }
 
-    fn count_reader<R: Read>(reader: &mut R) -> io::Result<Counts> {
-        let mut buf = Vec::new();
-        reader.read_to_end(&mut buf)?;
+    fn count_reader<R: Read>(reader: &mut R, mode: CountMode) -> io::Result<Counts> {
+        let mut counts = Counts::default();
+        let mut buffer = [0_u8; Self::BUFFER_SIZE];
+        let mut pending_utf8 = Vec::with_capacity(Self::BUFFER_SIZE + 3);
+        let mut in_word = false;
 
-        let bytes = buf.len();
-        let text = String::from_utf8_lossy(&buf);
-        let chars = text.chars().count();
-        let lines = text.chars().filter(|&c| c == '\n').count();
-        let words = text.split_whitespace().count();
+        loop {
+            let read = match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(read) => read,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error),
+            };
+            let chunk = &buffer[..read];
 
-        Ok(Counts {
-            lines,
-            words,
-            bytes,
-            chars,
-        })
+            if mode.bytes {
+                counts.bytes += read;
+            }
+            if mode.lines {
+                counts.lines += chunk.iter().filter(|byte| **byte == b'\n').count();
+            }
+            if mode.words || mode.chars {
+                pending_utf8.extend_from_slice(chunk);
+                let processed =
+                    Self::count_complete_utf8(&pending_utf8, &mut counts, &mut in_word, mode);
+                let remaining = pending_utf8.len() - processed;
+                pending_utf8.copy_within(processed.., 0);
+                pending_utf8.truncate(remaining);
+            }
+        }
+
+        // `count_complete_utf8` leaves only one incomplete UTF-8 sequence. This
+        // matches `String::from_utf8_lossy` by counting it as one replacement char.
+        if !pending_utf8.is_empty() {
+            Self::count_char('\u{fffd}', &mut counts, &mut in_word, mode);
+        }
+
+        Ok(counts)
+    }
+
+    fn count_complete_utf8(
+        bytes: &[u8],
+        counts: &mut Counts,
+        in_word: &mut bool,
+        mode: CountMode,
+    ) -> usize {
+        let mut offset = 0;
+
+        while offset < bytes.len() {
+            match std::str::from_utf8(&bytes[offset..]) {
+                Ok(text) => {
+                    Self::count_text(text, counts, in_word, mode);
+                    return bytes.len();
+                }
+                Err(error) => {
+                    let valid_end = offset + error.valid_up_to();
+                    if valid_end > offset {
+                        let text = std::str::from_utf8(&bytes[offset..valid_end])
+                            .expect("UTF-8 error reported a valid prefix");
+                        Self::count_text(text, counts, in_word, mode);
+                    }
+                    offset = valid_end;
+
+                    if let Some(error_len) = error.error_len() {
+                        Self::count_char('\u{fffd}', counts, in_word, mode);
+                        offset += error_len;
+                    } else {
+                        return offset;
+                    }
+                }
+            }
+        }
+
+        offset
+    }
+
+    fn count_text(text: &str, counts: &mut Counts, in_word: &mut bool, mode: CountMode) {
+        for ch in text.chars() {
+            Self::count_char(ch, counts, in_word, mode);
+        }
+    }
+
+    fn count_char(ch: char, counts: &mut Counts, in_word: &mut bool, mode: CountMode) {
+        if mode.chars {
+            counts.chars += 1;
+        }
+        if mode.words {
+            if ch.is_whitespace() {
+                *in_word = false;
+            } else if !*in_word {
+                counts.words += 1;
+                *in_word = true;
+            }
+        }
     }
 
     fn print_counts(
         out: &mut impl Write,
         counts: &Counts,
-        show_lines: bool,
-        show_words: bool,
-        show_bytes: bool,
-        show_chars: bool,
+        mode: CountMode,
         name: Option<&str>,
     ) -> io::Result<()> {
-        let mut parts: Vec<String> = Vec::new();
-        if show_lines {
-            parts.push(format!("{:>7}", counts.lines));
+        if mode.lines {
+            write!(out, "{:>7}", counts.lines)?;
         }
-        if show_words {
-            parts.push(format!("{:>7}", counts.words));
+        if mode.words {
+            write!(out, "{:>7}", counts.words)?;
         }
-        if show_bytes {
-            parts.push(format!("{:>7}", counts.bytes));
+        if mode.bytes {
+            write!(out, "{:>7}", counts.bytes)?;
         }
-        if show_chars {
-            parts.push(format!("{:>7}", counts.chars));
+        if mode.chars {
+            write!(out, "{:>7}", counts.chars)?;
         }
-        if let Some(n) = name {
-            writeln!(out, "{} {}", parts.join(""), n)?;
-        } else {
-            writeln!(out, "{}", parts.join(""))?;
+        if let Some(name) = name {
+            write!(out, " {}", name)?;
         }
-        Ok(())
+        writeln!(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CountMode, WcApplet};
+    use std::io::{self, Read};
+
+    struct ChunkedReader<'a> {
+        input: &'a [u8],
+        offset: usize,
+        chunk_size: usize,
+    }
+
+    impl Read for ChunkedReader<'_> {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            if self.offset == self.input.len() {
+                return Ok(0);
+            }
+            let len = self
+                .chunk_size
+                .min(output.len())
+                .min(self.input.len() - self.offset);
+            output[..len].copy_from_slice(&self.input[self.offset..self.offset + len]);
+            self.offset += len;
+            Ok(len)
+        }
+    }
+
+    #[test]
+    fn streaming_counts_match_lossy_reference_for_all_chunk_boundaries() {
+        let cases: &[&[u8]] = &[
+            b"",
+            b"one two\nthree\n",
+            "你好 😊\nnext\tword".as_bytes(),
+            &[0xff, b'a', b' ', 0xfe, b'\n'],
+            &[0xe2, 0x82],
+            &[0xf0, 0x9f, 0x98, 0x8a, 0xf0, 0x9f],
+        ];
+        let mode = CountMode {
+            lines: true,
+            words: true,
+            bytes: true,
+            chars: true,
+        };
+
+        for input in cases {
+            let text = String::from_utf8_lossy(input);
+            let expected_lines = text.chars().filter(|ch| *ch == '\n').count();
+            let expected_words = text.split_whitespace().count();
+            let expected_chars = text.chars().count();
+
+            for chunk_size in 1..=7 {
+                let mut reader = ChunkedReader {
+                    input,
+                    offset: 0,
+                    chunk_size,
+                };
+                let counts = WcApplet::count_reader(&mut reader, mode).unwrap();
+                assert_eq!(counts.lines, expected_lines, "chunk size {chunk_size}");
+                assert_eq!(counts.words, expected_words, "chunk size {chunk_size}");
+                assert_eq!(counts.bytes, input.len(), "chunk size {chunk_size}");
+                assert_eq!(counts.chars, expected_chars, "chunk size {chunk_size}");
+            }
+        }
     }
 }

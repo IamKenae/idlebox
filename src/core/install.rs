@@ -36,10 +36,11 @@ pub fn install(target: Option<&str>) -> Result<i32, Box<dyn std::error::Error>> 
 
         let dispatcher = Dispatcher::new();
         let applet_names = dispatcher.applet_names();
+        let applet_count = applet_names.len();
 
         println!("Installing IdleBox applets to {}...", dest_dir.display());
 
-        for name in &applet_names {
+        for name in applet_names {
             let launcher_name = format!("{}{}", name, env::consts::EXE_SUFFIX);
             let launcher_path = dest_dir.join(launcher_name);
             let method = install_launcher(&launcher_source, &launcher_path)?;
@@ -51,7 +52,7 @@ pub fn install(target: Option<&str>) -> Result<i32, Box<dyn std::error::Error>> 
             );
         }
 
-        println!("Done. {} applets installed.", applet_names.len());
+        println!("Done. {} applets installed.", applet_count);
         Ok(0)
     }
 }

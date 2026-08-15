@@ -66,6 +66,59 @@ fn test_unknown_applet() {
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("applet not found"));
+    assert!(stderr.contains("idlebox list"));
+}
+
+#[test]
+fn test_global_help() {
+    let output = idlebox_command()
+        .arg("--help")
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("A lightweight multi-call toolbox"));
+    assert!(stdout.contains("idlebox help [APPLET]"));
+    assert!(stdout.contains("idlebox --version"));
+}
+
+#[test]
+fn test_global_version() {
+    let output = idlebox_command()
+        .arg("--version")
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        format!("idlebox {}\n", env!("CARGO_PKG_VERSION"))
+    );
+}
+
+#[test]
+fn test_help_subcommand_for_applet() {
+    let output = idlebox_command()
+        .args(["help", "cat"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Usage: cat"));
+    assert!(stdout.contains("Concatenate files"));
+}
+
+#[test]
+fn test_help_after_option_separator_is_applet_input() {
+    let output = idlebox_command()
+        .args(["echo", "--", "--help"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "-- --help\n");
 }
 
 #[test]
@@ -112,6 +165,68 @@ fn test_list_applets() {
     assert!(stdout.contains("uptime"));
     assert!(stdout.contains("wc"));
     assert!(stdout.contains("whoami"));
+}
+
+#[test]
+fn test_list_long_alias_matches_list() {
+    let list = idlebox_command()
+        .arg("list")
+        .output()
+        .expect("failed to execute process");
+    let long_alias = idlebox_command()
+        .arg("--list")
+        .output()
+        .expect("failed to execute process");
+
+    assert!(list.status.success());
+    assert!(long_alias.status.success());
+    assert_eq!(list.stdout, long_alias.stdout);
+}
+
+#[test]
+fn test_list_rejects_extra_arguments() {
+    let output = idlebox_command()
+        .args(["list", "extra"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unexpected argument 'extra'"));
+}
+
+#[test]
+fn test_install_help() {
+    let output = idlebox_command()
+        .args(["--install", "--help"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Usage: idlebox --install [PATH]"));
+}
+
+#[test]
+fn test_install_rejects_extra_arguments() {
+    let output = idlebox_command()
+        .args(["--install", "first", "second"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unexpected argument 'second'"));
+}
+
+#[test]
+fn test_install_requires_separator_for_dash_prefixed_path() {
+    let output = idlebox_command()
+        .args(["--install", "-tools"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("unknown option '-tools'"));
+    assert!(stderr.contains("Use '--' before PATH"));
 }
 
 #[test]
@@ -2377,6 +2492,57 @@ fn test_wc_multiple_files() {
 }
 
 #[test]
+fn test_wc_streams_utf8_across_buffer_boundaries() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_wc_utf8_boundary");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.txt");
+    let content = format!("{}😊\n", "a".repeat(8191));
+    fs::write(&file, content).unwrap();
+
+    let output = idlebox_command()
+        .args(["wc", "-lwmc", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let counts = String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .take(4)
+        .map(|value| value.parse::<usize>().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(counts, vec![1, 1, 8196, 8193]);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_wc_counts_invalid_utf8_lossily_without_buffering_the_file() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_wc_invalid_utf8");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("input.bin");
+    fs::write(&file, [0xff, b'\n', 0xfe]).unwrap();
+
+    let output = idlebox_command()
+        .args(["wc", "-m", file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout)
+            .split_whitespace()
+            .next(),
+        Some("3")
+    );
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
 fn test_sort_basic() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_sort");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -2557,6 +2723,46 @@ fn test_uniq_ignore_case() {
     assert!(lines[1].contains("1"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_uniq_streams_to_output_file() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_uniq_output");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let input = tmp_dir.join("input.txt");
+    let output = tmp_dir.join("output.txt");
+    fs::write(&input, "a\na\nb\n").unwrap();
+
+    let result = idlebox_command()
+        .args([
+            "uniq",
+            "-c",
+            input.to_str().unwrap(),
+            output.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(result.status.success());
+    assert!(result.stdout.is_empty());
+    let written = fs::read_to_string(output).unwrap();
+    assert!(written.contains("2 a"));
+    assert!(written.contains("1 b"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_uniq_rejects_extra_operands() {
+    let output = idlebox_command()
+        .args(["uniq", "first", "second", "third"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("extra operand 'third'"));
 }
 
 #[test]

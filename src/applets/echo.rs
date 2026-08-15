@@ -1,4 +1,5 @@
 use crate::core::Applet;
+use std::io::{self, Write};
 
 pub struct EchoApplet;
 
@@ -20,13 +21,20 @@ impl Applet for EchoApplet {
             start_idx = 1;
         }
 
-        let output = args[start_idx..].join(" ");
+        let stdout = io::stdout();
+        let mut out = stdout.lock();
+
+        for (index, arg) in args[start_idx..].iter().enumerate() {
+            if index > 0 {
+                out.write_all(b" ")?;
+            }
+            out.write_all(arg.as_bytes())?;
+        }
 
         if newline {
-            println!("{}", output);
-        } else {
-            print!("{}", output);
+            out.write_all(b"\n")?;
         }
+        out.flush()?;
 
         Ok(0)
     }

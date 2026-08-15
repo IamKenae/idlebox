@@ -3,8 +3,8 @@ name: CI
 on:
   push:
     branches: [main, feat/cross-platform]
-  pull_request:
-    branches: [main]
+  pull_request: {}
+  workflow_dispatch: {}
 
 env:
   CARGO_TERM_COLOR: always
@@ -21,7 +21,7 @@ jobs:
             artifact_name: idlebox-linux-x86_64
             binary_name: idlebox
           - os: macos-latest
-            artifact_name: idlebox-macos-x86_64
+            artifact_name: idlebox-macos-native
             binary_name: idlebox
           - os: windows-latest
             artifact_name: idlebox-windows-x86_64
@@ -75,7 +75,28 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
+          components: clippy
           targets: x86_64-pc-windows-msvc
 
+      - name: cargo clippy (windows target)
+        run: cargo clippy --all-targets --target x86_64-pc-windows-msvc -- -D warnings
+
       - name: cargo check (windows target)
-        run: cargo check --target x86_64-pc-windows-msvc
+        run: cargo check --all-targets --target x86_64-pc-windows-msvc
+
+  minimum-toolchain-musl:
+    name: Minimum Rust 1.85 & Alpine/musl
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Test and build in Alpine
+        run: |
+          docker run --rm \
+            --mount "type=bind,src=${GITHUB_WORKSPACE},dst=/src,readonly" \
+            --env CARGO_TARGET_DIR=/tmp/idlebox-target \
+            --workdir /src \
+            rust:1.85-alpine \
+            sh -eu -c 'cargo test --all-targets && cargo build --release'

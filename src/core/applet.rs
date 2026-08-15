@@ -1,4 +1,4 @@
-pub trait Applet {
+pub trait Applet: Sync {
     fn name(&self) -> &'static str;
 
     fn description(&self) -> &'static str;

@@ -332,7 +332,7 @@ fn ymd_to_days(year: u64, month: u64, day: u64) -> u64 {
 }
 
 fn is_leap(year: u64) -> bool {
-    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
 }
 
 #[cfg(unix)]
@@ -346,4 +346,17 @@ struct libc_timeval {
 extern "C" {
     #[link_name = "gettimeofday"]
     fn raw_gettimeofday(tv: *mut libc_timeval, tz: *mut u8) -> i32;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_leap;
+
+    #[test]
+    fn leap_year_handles_century_rules() {
+        assert!(is_leap(2000));
+        assert!(is_leap(2024));
+        assert!(!is_leap(1900));
+        assert!(!is_leap(2023));
+    }
 }

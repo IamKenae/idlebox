@@ -163,23 +163,17 @@ impl GrepApplet {
         options: &GrepOptions<'_>,
         file_label: &str,
     ) -> io::Result<usize> {
-        let pattern_compare = if options.ignore_case {
-            options.pattern.to_lowercase()
-        } else {
-            options.pattern.to_string()
-        };
+        let folded_pattern = options.ignore_case.then(|| options.pattern.to_lowercase());
 
         let mut match_count = 0usize;
 
         for (idx, line_result) in reader.lines().enumerate() {
             let line = line_result?;
-            let line_compare = if options.ignore_case {
-                line.to_lowercase()
+            let matches = if let Some(pattern) = &folded_pattern {
+                line.to_lowercase().contains(pattern)
             } else {
-                line.clone()
+                line.contains(options.pattern)
             };
-
-            let matches = line_compare.contains(&pattern_compare);
             let should_print = if options.invert_match {
                 !matches
             } else {
