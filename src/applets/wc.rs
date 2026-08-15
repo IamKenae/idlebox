@@ -77,6 +77,10 @@ impl Applet for WcApplet {
                             'w' => show_words = true,
                             'c' => show_bytes = true,
                             'm' => show_chars = true,
+                            'h' => {
+                                self.help();
+                                return Ok(0);
+                            }
                             'j' => {
                                 let rest: String = chars.collect();
                                 if rest.is_empty() {
@@ -390,10 +394,20 @@ impl WcApplet {
 
         let mut results: Vec<(usize, String, Result<Counts, io::Error>)> = rx.iter().collect();
 
+        let mut had_panic = false;
         for handle in handles {
             if let Err(e) = handle.join() {
                 eprintln!("wc: worker thread panicked: {:?}", e);
+                had_panic = true;
             }
+        }
+
+        if had_panic && results.len() < files_len {
+            eprintln!(
+                "wc: warning: only processed {} of {} files due to thread panic",
+                results.len(),
+                files_len
+            );
         }
 
         results.sort_by_key(|(idx, _, _)| *idx);

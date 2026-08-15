@@ -244,23 +244,25 @@ impl GrepApplet {
         Self::grep_reader(out, reader, options, file_label)
     }
 
+    fn matches_pattern(line: &str, pattern: &str, ignore_case: bool) -> bool {
+        if ignore_case {
+            line.to_lowercase().contains(&pattern.to_lowercase())
+        } else {
+            line.contains(pattern)
+        }
+    }
+
     fn grep_reader<R: BufRead>(
         out: &mut impl Write,
         reader: R,
         options: &GrepOptions<'_>,
         file_label: &str,
     ) -> io::Result<usize> {
-        let folded_pattern = options.ignore_case.then(|| options.pattern.to_lowercase());
-
         let mut match_count = 0usize;
 
         for (idx, line_result) in reader.lines().enumerate() {
             let line = line_result?;
-            let matches = if let Some(pattern) = &folded_pattern {
-                line.to_lowercase().contains(pattern)
-            } else {
-                line.contains(options.pattern)
-            };
+            let matches = Self::matches_pattern(&line, options.pattern, options.ignore_case);
             let should_print = if options.invert_match {
                 !matches
             } else {
@@ -343,10 +345,20 @@ impl GrepApplet {
         let mut results: Vec<(usize, String, Result<(usize, Vec<String>), io::Error>)> =
             rx.iter().collect();
 
+        let mut had_panic = false;
         for handle in handles {
             if let Err(e) = handle.join() {
                 eprintln!("grep: worker thread panicked: {:?}", e);
+                had_panic = true;
             }
+        }
+
+        if had_panic && results.len() < files_len {
+            eprintln!(
+                "grep: warning: only processed {} of {} files due to thread panic",
+                results.len(),
+                files_len
+            );
         }
 
         results.sort_by_key(|(idx, _, _)| *idx);
@@ -362,18 +374,13 @@ impl GrepApplet {
     ) -> Result<(usize, Vec<String>), io::Error> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
-        let folded_pattern = options.ignore_case.then(|| options.pattern.to_lowercase());
 
         let mut match_count = 0usize;
         let mut output_lines = Vec::new();
 
         for (idx, line_result) in reader.lines().enumerate() {
             let line = line_result?;
-            let matches = if let Some(pattern) = &folded_pattern {
-                line.to_lowercase().contains(pattern)
-            } else {
-                line.contains(&options.pattern)
-            };
+            let matches = Self::matches_pattern(&line, &options.pattern, options.ignore_case);
             let should_print = if options.invert_match {
                 !matches
             } else {
