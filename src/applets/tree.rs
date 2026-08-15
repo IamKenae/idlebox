@@ -72,10 +72,11 @@ struct Options {
 
 impl Options {
     /// Resolve the connector glyphs. `-i` wins over `--charset` because it drops
-    /// the lines entirely and keeps plain indentation.
+    /// the connector lines *and* the indentation at every depth, which is what
+    /// makes `tree -if` a pipe-able list of bare paths.
     fn resolve_glyphs(&mut self) {
         let (branch, last, vertical, blank) = if self.no_indent {
-            ("", "", "    ", "    ")
+            ("", "", "", "")
         } else if self.ascii {
             ("|-- ", "`-- ", "|   ", "    ")
         } else {
@@ -170,10 +171,13 @@ impl Applet for TreeApplet {
                 continue;
             }
 
-            // Short options, possibly bundled. An option that takes a value has
-            // to be the last character of the bundle (`-aL 2`).
+            // Short options, possibly bundled. An option that takes a value
+            // consumes the rest of the bundle (`-L2`) or, when it ends the
+            // bundle, the next argument (`-aL 2`) — the way getopt does it.
             let chars: Vec<char> = arg[1..].chars().collect();
-            for (idx, ch) in chars.iter().enumerate() {
+            let mut idx = 0;
+            while idx < chars.len() {
+                let ch = chars[idx];
                 match ch {
                     'a' => opts.all = true,
                     'd' => opts.dirs_only = true,
@@ -196,16 +200,16 @@ impl Applet for TreeApplet {
                     'J' => opts.format = Format::Json,
                     'X' => opts.format = Format::Xml,
                     'L' | 'I' | 'P' | 'o' | 'H' => {
-                        if idx + 1 != chars.len() {
-                            eprintln!("tree: option -- '{}' must end the option group", ch);
-                            return Ok(1);
-                        }
-                        i += 1;
-                        if i >= args.len() {
-                            eprintln!("tree: option requires an argument -- '{}'", ch);
-                            return Ok(1);
-                        }
-                        let value = args[i].clone();
+                        let value: String = if idx + 1 < chars.len() {
+                            chars[idx + 1..].iter().collect()
+                        } else {
+                            i += 1;
+                            if i >= args.len() {
+                                eprintln!("tree: option requires an argument -- '{}'", ch);
+                                return Ok(1);
+                            }
+                            args[i].clone()
+                        };
                         match ch {
                             'L' => match value.parse::<usize>() {
                                 Ok(0) | Err(_) => {
@@ -222,12 +226,14 @@ impl Applet for TreeApplet {
                                 opts.html_base = value;
                             }
                         }
+                        break;
                     }
                     _ => {
                         eprintln!("tree: invalid option -- '{}'", ch);
                         return Ok(1);
                     }
                 }
+                idx += 1;
             }
             i += 1;
         }
@@ -266,7 +272,7 @@ impl Applet for TreeApplet {
         println!("  -f              Print the full path prefix for each entry (text output only)");
         println!("  -I PATTERN      Do not list entries matching PATTERN");
         println!("  -P PATTERN      List only files matching PATTERN");
-        println!("  -i              Print indentation only, without the connector lines");
+        println!("  -i              Print entries without indentation or connector lines");
         println!();
         println!("File information:");
         println!("  -s              Print the size of each file in bytes");
@@ -291,6 +297,8 @@ impl Applet for TreeApplet {
         println!("  -H BASE         Print the tree as HTML, using BASE as the link prefix");
         println!("  --charset SET   Line-drawing character set: UTF-8 (default) or ASCII");
         println!("  --noreport      Omit the file and directory count at the end");
+        println!();
+        println!("An option that takes a value accepts it attached (-L2) or separate (-L 2).");
     }
 }
 
@@ -705,12 +713,17 @@ impl TreeApplet {
 
         let base = opts.html_base.trim_end_matches('/');
         writeln!(out, "<p>")?;
-        writeln!(
+        Self::html_meta(&meta, opts, out)?;
+        write!(
             out,
-            "<a href=\"{}\">{}</a><br>",
+            "<a href=\"{}\">{}</a>",
             xml_escape(base),
             xml_escape(path)
         )?;
+        if opts.classify {
+            Self::write_marker(&meta, root, out)?;
+        }
+        writeln!(out, "<br>")?;
 
         if meta.is_dir() {
             match Self::read_children(root, opts, st) {
@@ -746,13 +759,19 @@ impl TreeApplet {
             for _ in 0..indent {
                 write!(out, "&nbsp;&nbsp;&nbsp;&nbsp;")?;
             }
+            Self::html_meta(&entry.meta, opts, out)?;
+            // `url_encode` only ever emits unreserved characters and `/`, so the
+            // href needs no further XML escaping; the link text still does.
             write!(
                 out,
                 "<a href=\"{}/{}\">{}</a>",
                 xml_escape(base),
-                xml_escape(&child_rel),
+                url_encode(&child_rel),
                 xml_escape(&entry.name)
             )?;
+            if opts.classify {
+                Self::write_marker(&entry.meta, &entry.path, out)?;
+            }
 
             match Self::descend(entry, depth, opts, st) {
                 Some(Err(_)) => {
@@ -995,6 +1014,21 @@ impl TreeApplet {
         }
 
         write!(out, "]  ")
+    }
+
+    /// The same bracketed columns, escaped for HTML. The padding that lines the
+    /// columns up has to survive as `&nbsp;`, since a browser collapses runs of
+    /// plain spaces.
+    fn html_meta(meta: &Metadata, opts: &Options, out: &mut dyn Write) -> io::Result<()> {
+        if !opts.any_meta() {
+            return Ok(());
+        }
+        let mut buf = Vec::new();
+        Self::write_meta(meta, opts, &mut buf)?;
+        // Only the account names can be non-ASCII, and those came out of the
+        // passwd database as UTF-8; lossy conversion keeps this infallible.
+        let text = xml_escape(&String::from_utf8_lossy(&buf));
+        write!(out, "{}", text.replace(' ', "&nbsp;"))
     }
 }
 
@@ -1382,6 +1416,28 @@ fn xml_escape(text: &str) -> String {
     result
 }
 
+/// Percent-encode a relative path for use inside an `href`. Everything outside
+/// the RFC 3986 unreserved set is escaped, so a name holding `#`, `?`, `%` or a
+/// space still produces a link that resolves to that file. `/` is kept as-is,
+/// since the input is a path rather than a single component.
+fn url_encode(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                result.push(byte as char)
+            }
+            _ => {
+                const HEX: &[u8; 16] = b"0123456789ABCDEF";
+                result.push('%');
+                result.push(HEX[(byte >> 4) as usize] as char);
+                result.push(HEX[(byte & 0xf) as usize] as char);
+            }
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1399,5 +1455,17 @@ mod tests {
         assert_eq!(xml_escape("a&b<c>d"), "a&amp;b&lt;c&gt;d");
         assert_eq!(xml_escape("say \"hi\""), "say &quot;hi&quot;");
         assert_eq!(xml_escape("it's"), "it&apos;s");
+    }
+
+    #[test]
+    fn url_encode_escapes_everything_but_unreserved() {
+        assert_eq!(url_encode("a/b/c.txt"), "a/b/c.txt");
+        assert_eq!(url_encode("-_.~"), "-_.~");
+        assert_eq!(url_encode("we ird#name?q"), "we%20ird%23name%3Fq");
+        assert_eq!(url_encode("100%"), "100%25");
+        // Multi-byte characters are encoded one UTF-8 byte at a time.
+        assert_eq!(url_encode("é"), "%C3%A9");
+        // Nothing an XML attribute would have to escape survives.
+        assert_eq!(url_encode("a&b\"c<d>"), "a%26b%22c%3Cd%3E");
     }
 }

@@ -4671,14 +4671,32 @@ fn test_tree_max_depth() {
     assert!(!stdout.contains("deep.txt"));
     assert!(stdout.contains("2 directories, 1 file"));
 
-    // Bundled short options are allowed as long as the value-taking one is last.
+    // A value-taking option can end a bundle and read the next argument...
     let bundled = run_tree(&["-aL", "1", tmp_dir.to_str().unwrap()]);
     assert!(bundled.status.success());
     assert!(String::from_utf8_lossy(&bundled.stdout).contains(".hidden.txt"));
 
-    let misplaced = run_tree(&["-La", "1", tmp_dir.to_str().unwrap()]);
-    assert_eq!(misplaced.status.code(), Some(1));
-    assert!(String::from_utf8_lossy(&misplaced.stderr).contains("must end the option group"));
+    // ...or carry the value attached, the way getopt accepts `-L2`.
+    let attached = run_tree(&["-L1", tmp_dir.to_str().unwrap()]);
+    assert!(attached.status.success());
+    let stdout = String::from_utf8_lossy(&attached.stdout);
+    assert!(stdout.contains("a_dir"));
+    assert!(!stdout.contains("nested.rs"));
+
+    let attached_pattern = run_tree(&["-P*.rs", tmp_dir.to_str().unwrap()]);
+    assert!(attached_pattern.status.success());
+    let stdout = String::from_utf8_lossy(&attached_pattern.stdout);
+    assert!(stdout.contains("nested.rs"));
+    assert!(!stdout.contains("b.txt"));
+
+    // An attached value that is not a number is a level error, not a bundle error.
+    let non_numeric = run_tree(&["-La", tmp_dir.to_str().unwrap()]);
+    assert_eq!(non_numeric.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&non_numeric.stderr).contains("must be greater than 0"));
+
+    let missing_value = run_tree(&["-L"]);
+    assert_eq!(missing_value.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&missing_value.stderr).contains("requires an argument"));
 
     let zero = run_tree(&["-L", "0", tmp_dir.to_str().unwrap()]);
     assert_eq!(zero.status.code(), Some(1));
@@ -4739,7 +4757,19 @@ fn test_tree_noindent_and_charset() {
     let stdout = String::from_utf8_lossy(&plain.stdout);
     assert!(!stdout.contains("├"));
     assert!(!stdout.contains("│"));
-    assert!(stdout.contains("    nested.rs"));
+    // Flush left at *every* depth, not just the first: the point of -i is that
+    // `tree -if` produces a list of bare paths something else can consume.
+    for line in stdout.lines() {
+        assert!(!line.starts_with(' '), "-i must not indent, got {:?}", line);
+    }
+    assert!(stdout.contains("\nnested.rs\n"));
+    assert!(stdout.contains("\ndeep.txt\n"));
+
+    let flat = run_tree(&["-i", "-f", tmp_dir.to_str().unwrap()]);
+    assert!(flat.status.success());
+    let stdout = String::from_utf8_lossy(&flat.stdout);
+    let deep = tmp_dir.join("a_dir").join("sub").join("deep.txt");
+    assert!(stdout.contains(&format!("\n{}\n", deep.display())));
 
     let ascii = run_tree(&["--charset", "ASCII", tmp_dir.to_str().unwrap()]);
     assert!(ascii.status.success());
@@ -4932,6 +4962,43 @@ fn test_tree_html() {
     assert!(stdout.contains("<p>3 directories, 4 files</p>"));
     assert!(stdout.trim_end().ends_with("</html>"));
 
+    // Metadata columns reach the HTML output too, with the padding preserved.
+    let with_meta = run_tree(&[
+        "-s",
+        "-H",
+        "https://example.com/files",
+        tmp_dir.to_str().unwrap(),
+    ]);
+    assert!(with_meta.status.success());
+    let stdout = String::from_utf8_lossy(&with_meta.stdout);
+    assert!(stdout.contains("5]&nbsp;&nbsp;<a href="));
+    assert!(!stdout.contains("5]  <a href="));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// Names that are legal on disk but not in a URL have to be percent-encoded, or
+/// the `#` truncates the link and the `?` turns the rest into a query string.
+#[test]
+#[cfg(unix)]
+fn test_tree_html_percent_encodes_links() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_htmlurl");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    fs::write(tmp_dir.join("we ird#name?q.txt"), "x").unwrap();
+    fs::write(tmp_dir.join("a&b.txt"), "x").unwrap();
+
+    let output = run_tree(&["-H", "https://example.com/f", tmp_dir.to_str().unwrap()]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("href=\"https://example.com/f/we%20ird%23name%3Fq.txt\""));
+    assert!(stdout.contains("href=\"https://example.com/f/a%26b.txt\""));
+    // The visible link text stays readable, HTML-escaped rather than encoded.
+    assert!(stdout.contains(">we ird#name?q.txt</a>"));
+    assert!(stdout.contains(">a&amp;b.txt</a>"));
+    // Nothing that could break out of the href attribute survives.
+    assert!(!stdout.contains("href=\"https://example.com/f/we ird"));
+
     let _ = fs::remove_dir_all(&tmp_dir);
 }
 
@@ -5093,6 +5160,136 @@ fn test_tree_reports_unreadable_directory() {
     // Other branches keep being walked.
     assert!(stdout.contains("nested.rs"));
     assert!(stdout.contains("x.md"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_full_path() {
+    let tmp_dir = tree_fixture("fullpath");
+
+    let output = run_tree(&["-f", tmp_dir.to_str().unwrap()]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let nested = tmp_dir.join("a_dir").join("nested.rs");
+    let deep = tmp_dir.join("a_dir").join("sub").join("deep.txt");
+    assert!(stdout.contains(&nested.display().to_string()));
+    assert!(stdout.contains(&deep.display().to_string()));
+    // The connectors stay in place; only the names grow a prefix.
+    assert!(stdout.contains("├──"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_color() {
+    let tmp_dir = tree_fixture("color");
+
+    // Directories are blue, and the escape has to be closed again.
+    let colored = run_tree(&["-C", "-L", "1", tmp_dir.to_str().unwrap()]);
+    assert!(colored.status.success());
+    let stdout = String::from_utf8_lossy(&colored.stdout);
+    assert!(stdout.contains("\x1b[1;34ma_dir\x1b[0m"));
+    assert!(stdout.contains("b.txt"));
+    assert!(!stdout.contains("\x1b[1;34mb.txt"));
+
+    // -n turns it back off, and the last flag on the line wins.
+    let plain = run_tree(&["-C", "-n", "-L", "1", tmp_dir.to_str().unwrap()]);
+    assert!(plain.status.success());
+    assert!(!String::from_utf8_lossy(&plain.stdout).contains("\x1b["));
+
+    let default = run_tree(&["-L", "1", tmp_dir.to_str().unwrap()]);
+    assert!(!String::from_utf8_lossy(&default.stdout).contains("\x1b["));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_tree_user_and_group_columns() {
+    let tmp_dir = tree_fixture("owner");
+
+    let expected = idlebox_command()
+        .arg("whoami")
+        .output()
+        .expect("failed to execute process");
+    let expected = String::from_utf8_lossy(&expected.stdout).trim().to_string();
+    let user = expected.as_str();
+
+    let output = run_tree(&["-u", "-g", "-L", "1", tmp_dir.to_str().unwrap()]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Both columns are present, padded, and inside one bracketed group.
+    assert!(
+        stdout.contains(&format!("[{:<8}", user)),
+        "missing owner in {}",
+        stdout
+    );
+    for line in stdout.lines().filter(|l| l.contains("b.txt")) {
+        assert!(line.contains(']'), "unterminated metadata group: {}", line);
+    }
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_human_size_uses_units() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_humansize");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    fs::write(tmp_dir.join("big.bin"), vec![0u8; 3_000_000]).unwrap();
+    fs::write(tmp_dir.join("small.bin"), vec![0u8; 2_048]).unwrap();
+
+    let human = run_tree(&["-h", tmp_dir.to_str().unwrap()]);
+    assert!(human.status.success());
+    let stdout = String::from_utf8_lossy(&human.stdout);
+    assert!(stdout.contains("2.9M]  big.bin"), "got {}", stdout);
+    assert!(stdout.contains("2.0K]  small.bin"), "got {}", stdout);
+
+    // -s keeps the raw byte count instead.
+    let bytes = run_tree(&["-s", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&bytes.stdout);
+    assert!(stdout.contains("3000000]  big.bin"), "got {}", stdout);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tree_multiple_roots() {
+    let first = tree_fixture("multi_a");
+    let second = std::env::temp_dir().join("idlebox_test_tree_multi_b");
+    let _ = fs::remove_dir_all(&second);
+    fs::create_dir_all(&second).unwrap();
+    fs::write(second.join("only.txt"), "x").unwrap();
+
+    let output = run_tree(&[first.to_str().unwrap(), second.to_str().unwrap()]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("nested.rs"));
+    assert!(stdout.contains("only.txt"));
+    // One combined report covering both roots, printed once.
+    assert!(stdout.contains("3 directories, 5 files"));
+    assert_eq!(stdout.matches("directories,").count(), 1);
+    // The roots are separated by a blank line.
+    assert!(stdout.contains(&format!("\n\n{}\n", second.display())));
+
+    let _ = fs::remove_dir_all(&first);
+    let _ = fs::remove_dir_all(&second);
+}
+
+#[test]
+fn test_tree_output_file_error() {
+    let tmp_dir = tree_fixture("outerr");
+    // A directory is never a valid destination for -o.
+    let output = run_tree(&["-o", tmp_dir.to_str().unwrap(), tmp_dir.to_str().unwrap()]);
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot open output file"));
+    // The directory it refused to clobber is still there.
+    assert!(tmp_dir.join("b.txt").exists());
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
