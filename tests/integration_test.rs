@@ -2,7 +2,34 @@ use std::fs;
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+fn installed_applet_path(directory: &Path, applet: &str) -> PathBuf {
+    directory.join(format!("{}{}", applet, std::env::consts::EXE_SUFFIX))
+}
+
+fn install_test_dir(name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!("idlebox_test_{}_{}", name, std::process::id()))
+}
+
+fn run_install(directory: &Path) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_idlebox"))
+        .args(["--install", directory.to_str().unwrap()])
+        .output()
+        .expect("failed to execute idlebox --install")
+}
+
+fn assert_command_success(output: &std::process::Output, operation: &str) {
+    assert!(
+        output.status.success(),
+        "{} failed with {}\nstdout:\n{}\nstderr:\n{}",
+        operation,
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
 
 #[test]
 fn test_echo_basic() {
@@ -248,89 +275,115 @@ fn test_ls_all_flag() {
 }
 
 #[test]
-#[cfg(unix)]
-fn test_install_creates_symlinks() {
-    let tmp_dir = std::env::temp_dir().join("idlebox_test_install");
+fn test_install_creates_launchers() {
+    let tmp_dir = install_test_dir("install");
     let _ = fs::remove_dir_all(&tmp_dir);
 
-    let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "--install", tmp_dir.to_str().unwrap()])
-        .output()
-        .expect("failed to execute process");
+    let output = run_install(&tmp_dir);
 
-    assert!(output.status.success());
+    assert_command_success(&output, "installing applet launchers");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Created symlink"));
+    assert!(stdout.contains("Installed:"));
 
     for applet in &["cat", "chgrp", "chmod", "chown", "cp", "cut", "df", "du", "echo", "expr", "find", "free", "grep", "head", "id", "kill", "ln", "ls", "mkdir", "mv", "ps", "readlink", "relax", "rm", "sort", "su", "tail", "test", "[", "touch", "tr", "uname", "uniq", "uptime", "wc", "whoami"] {
-        let link = tmp_dir.join(applet);
-        assert!(link.exists(), "symlink for {} should exist", applet);
-        let meta = fs::symlink_metadata(&link).unwrap();
+        let launcher = installed_applet_path(&tmp_dir, applet);
+        assert!(launcher.exists(), "launcher for {} should exist", applet);
+        let meta = fs::symlink_metadata(&launcher).unwrap();
+
+        #[cfg(unix)]
         assert!(meta.file_type().is_symlink(), "{} should be a symlink", applet);
+
+        #[cfg(windows)]
+        assert!(
+            meta.is_file(),
+            "{} should be an executable launcher",
+            applet
+        );
     }
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
 
 #[test]
-#[cfg(unix)]
 fn test_install_overwrites_existing() {
-    let tmp_dir = std::env::temp_dir().join("idlebox_test_install_overwrite");
+    let tmp_dir = install_test_dir("install_overwrite");
     let _ = fs::remove_dir_all(&tmp_dir);
     fs::create_dir_all(&tmp_dir).unwrap();
 
-    fs::write(tmp_dir.join("echo"), "dummy").unwrap();
+    let echo_launcher = installed_applet_path(&tmp_dir, "echo");
+    fs::write(&echo_launcher, "dummy").unwrap();
 
-    let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "--install", tmp_dir.to_str().unwrap()])
+    let output = run_install(&tmp_dir);
+    assert_command_success(&output, "overwriting an existing launcher");
+
+    let output = Command::new(&echo_launcher)
+        .arg("overwritten")
         .output()
-        .expect("failed to execute process");
+        .expect("failed to execute overwritten launcher");
 
-    assert!(output.status.success());
+    assert_command_success(&output, "running an overwritten launcher");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "overwritten");
 
-    let meta = fs::symlink_metadata(tmp_dir.join("echo")).unwrap();
-    assert!(meta.file_type().is_symlink());
+    #[cfg(unix)]
+    assert!(
+        fs::symlink_metadata(&echo_launcher)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
 
 #[test]
-#[cfg(unix)]
+fn test_install_does_not_replace_directory() {
+    let tmp_dir = install_test_dir("install_directory_conflict");
+    let _ = fs::remove_dir_all(&tmp_dir);
+
+    let echo_launcher = installed_applet_path(&tmp_dir, "echo");
+    fs::create_dir_all(&echo_launcher).unwrap();
+
+    let output = run_install(&tmp_dir);
+
+    assert!(!output.status.success());
+    assert!(echo_launcher.is_dir(), "an existing directory must be preserved");
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("because it is a directory"),
+        "the failure should explain the directory conflict"
+    );
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
 fn test_install_creates_directory() {
-    let tmp_dir = std::env::temp_dir().join("idlebox_test_install_newdir").join("sub");
+    let tmp_dir = install_test_dir("install_newdir").join("sub");
     let _ = fs::remove_dir_all(tmp_dir.parent().unwrap());
 
-    let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "--install", tmp_dir.to_str().unwrap()])
-        .output()
-        .expect("failed to execute process");
+    let output = run_install(&tmp_dir);
 
-    assert!(output.status.success());
+    assert_command_success(&output, "installing into a new directory");
     assert!(tmp_dir.exists());
-    assert!(tmp_dir.join("echo").exists());
+    assert!(installed_applet_path(&tmp_dir, "echo").exists());
 
     let _ = fs::remove_dir_all(tmp_dir.parent().unwrap());
 }
 
 #[test]
-#[cfg(unix)]
-fn test_install_symlink_invokes_applet() {
-    let tmp_dir = std::env::temp_dir().join("idlebox_test_install_invoke");
+fn test_install_launcher_invokes_applet() {
+    let tmp_dir = install_test_dir("install_invoke");
     let _ = fs::remove_dir_all(&tmp_dir);
 
-    let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "--install", tmp_dir.to_str().unwrap()])
-        .output()
-        .expect("failed to execute process");
-    assert!(output.status.success());
+    let output = run_install(&tmp_dir);
+    assert_command_success(&output, "installing an invokable launcher");
 
-    let output = Command::new(tmp_dir.join("echo"))
-        .args(["hello", "from", "symlink"])
+    let output = Command::new(installed_applet_path(&tmp_dir, "echo"))
+        .args(["hello", "from", "launcher"])
         .output()
-        .expect("failed to execute via symlink");
+        .expect("failed to execute via installed launcher");
 
-    assert!(output.status.success());
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello from symlink");
+    assert_command_success(&output, "running an installed launcher");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello from launcher");
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }

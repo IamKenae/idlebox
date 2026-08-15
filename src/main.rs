@@ -57,8 +57,8 @@ fn print_usage(dispatcher: &Dispatcher) {
     println!("Usage:");
     println!("  idlebox <applet> [args...]    # Run an applet");
     println!("  idlebox list                  # List all applets");
-    println!("  idlebox --install [PATH]      # Install symlinks for all applets");
-    println!("  ./<applet> [args...]          # Run via symlink");
+    println!("  idlebox --install [PATH]      # Install launchers for all applets");
+    println!("  ./<applet> [args...]          # Run via an installed launcher");
     println!();
     println!("Available applets:");
     dispatcher.list_applets();

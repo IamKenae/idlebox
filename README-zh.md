@@ -87,7 +87,7 @@ BusyBox 承载了嵌入式 Linux 的半壁江山，但它的 C 代码库已走�
 | `whoami` | 打印有效用户名 | POSIX `geteuid()` + `getpwuid()` FFI |
 | `su` | 切换用户 | `-l` 登录 Shell、`-c` 命令、`-s` Shell；仅 root |
 | `relax` | IdleBox 特色：休息一下 | 独特的放松体验，体现 "Idle" 精神 |
-| `--install` | 通过符号链接自动部署 Applet | 在目标目录为所有 Applet 创建符号链接；默认安装到 `/usr/local/bin` |
+| `--install` | 自动部署 Applet launcher | Unix 创建符号链接；Windows 创建 `.exe` launcher，硬链接不可用时回退为文件副本 |
 
 ---
 
@@ -114,11 +114,11 @@ idlebox echo "Hello, IdleBox!"
 idlebox cat -n README.md
 idlebox ls --color=auto -lah
 
-# 自动安装（为所有 Applet 创建符号链接）
-idlebox --install              # 安装到 /usr/local/bin
-idlebox --install /tmp/bin     # 安装到自定义目录
+# 自动安装（为所有 Applet 创建 launcher）
+idlebox --install              # Unix: /usr/local/bin；Windows: %LOCALAPPDATA%\IdleBox\bin
+idlebox --install ./bin        # 安装到自定义目录
 
-# 通过符号链接
+# Unix 上通过符号链接调用
 cd target/release
 ln -s idlebox echo
 ln -s idlebox ls
