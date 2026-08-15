@@ -80,7 +80,11 @@ impl Applet for MvApplet {
             }
         }
 
-        if had_error { Ok(1) } else { Ok(0) }
+        if had_error {
+            Ok(1)
+        } else {
+            Ok(0)
+        }
     }
 
     fn help(&self) {
@@ -95,7 +99,11 @@ impl Applet for MvApplet {
 
 impl MvApplet {
     fn move_cross_device(src: &Path, dest: &Path) -> io::Result<()> {
-        if src.is_dir() {
+        let metadata = fs::symlink_metadata(src)?;
+        if metadata.file_type().is_symlink() {
+            Self::copy_symlink(src, dest)?;
+            fs::remove_file(src)?;
+        } else if metadata.is_dir() {
             Self::copy_dir_recursive(src, dest)?;
             fs::remove_dir_all(src)?;
         } else {
@@ -113,8 +121,11 @@ impl MvApplet {
             let src_path = entry.path();
             let dest_path = dest.join(entry.file_name());
 
-            if src_path.is_dir() {
+            let metadata = fs::symlink_metadata(&src_path)?;
+            if metadata.is_dir() {
                 Self::copy_dir_recursive(&src_path, &dest_path)?;
+            } else if metadata.file_type().is_symlink() {
+                Self::copy_symlink(&src_path, &dest_path)?;
             } else {
                 fs::copy(&src_path, &dest_path)?;
             }
@@ -122,6 +133,42 @@ impl MvApplet {
 
         Ok(())
     }
+
+    fn copy_symlink(src: &Path, dest: &Path) -> io::Result<()> {
+        if let Ok(metadata) = fs::symlink_metadata(dest) {
+            if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "destination is an existing directory",
+                ));
+            }
+            fs::remove_file(dest)?;
+        }
+        let target = fs::read_link(src)?;
+        create_symlink(&target, dest, src)
+    }
+}
+
+#[cfg(unix)]
+fn create_symlink(target: &Path, dest: &Path, _source_link: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, dest)
+}
+
+#[cfg(windows)]
+fn create_symlink(target: &Path, dest: &Path, source_link: &Path) -> io::Result<()> {
+    if fs::metadata(source_link).is_ok_and(|metadata| metadata.is_dir()) {
+        std::os::windows::fs::symlink_dir(target, dest)
+    } else {
+        std::os::windows::fs::symlink_file(target, dest)
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn create_symlink(_target: &Path, _dest: &Path, _source_link: &Path) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "moving symbolic links across devices is not supported on this platform",
+    ))
 }
 
 #[cfg(unix)]

@@ -1,7 +1,7 @@
 use crate::core::Applet;
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 pub struct CpApplet;
 
@@ -73,9 +73,23 @@ impl Applet for CpApplet {
                 dest_path.to_path_buf()
             };
 
-            if src_path.is_dir() {
+            let metadata = match fs::symlink_metadata(src_path) {
+                Ok(metadata) => metadata,
+                Err(_) => {
+                    eprintln!("cp: cannot stat '{}': No such file or directory", src);
+                    had_error = true;
+                    continue;
+                }
+            };
+
+            if metadata.is_dir() {
                 if !recursive {
                     eprintln!("cp: -r not specified; omitting directory '{}'", src);
+                    had_error = true;
+                    continue;
+                }
+                if let Err(e) = Self::ensure_destination_outside_source(src_path, &target) {
+                    eprintln!("cp: error copying '{}' to '{}': {}", src, dest, e);
                     had_error = true;
                     continue;
                 }
@@ -83,7 +97,12 @@ impl Applet for CpApplet {
                     eprintln!("cp: error copying '{}' to '{}': {}", src, dest, e);
                     had_error = true;
                 }
-            } else if src_path.is_file() || src_path.symlink_metadata().is_ok() {
+            } else if metadata.file_type().is_symlink() {
+                if let Err(e) = Self::copy_symlink(src_path, &target) {
+                    eprintln!("cp: error copying '{}' to '{}': {}", src, dest, e);
+                    had_error = true;
+                }
+            } else if metadata.is_file() {
                 if let Err(e) = Self::copy_file(src_path, &target, force) {
                     eprintln!("cp: error copying '{}' to '{}': {}", src, dest, e);
                     had_error = true;
@@ -94,7 +113,11 @@ impl Applet for CpApplet {
             }
         }
 
-        if had_error { Ok(1) } else { Ok(0) }
+        if had_error {
+            Ok(1)
+        } else {
+            Ok(0)
+        }
     }
 
     fn help(&self) {
@@ -110,10 +133,10 @@ impl Applet for CpApplet {
 
 impl CpApplet {
     fn copy_file(src: &Path, dest: &Path, force: bool) -> io::Result<()> {
-        if dest.exists() && !force {
-            if let Some(parent) = dest.parent() {
-                if parent.exists() {
-                    // file exists, no force — still overwrite (POSIX default for cp without -i)
+        if force {
+            if let Ok(metadata) = fs::symlink_metadata(dest) {
+                if !metadata.is_dir() {
+                    fs::remove_file(dest)?;
                 }
             }
         }
@@ -129,8 +152,11 @@ impl CpApplet {
             let src_path = entry.path();
             let dest_path = dest.join(entry.file_name());
 
-            if src_path.is_dir() {
+            let metadata = fs::symlink_metadata(&src_path)?;
+            if metadata.is_dir() {
                 Self::copy_dir_recursive(&src_path, &dest_path, force)?;
+            } else if metadata.file_type().is_symlink() {
+                Self::copy_symlink(&src_path, &dest_path)?;
             } else {
                 Self::copy_file(&src_path, &dest_path, force)?;
             }
@@ -138,4 +164,95 @@ impl CpApplet {
 
         Ok(())
     }
+
+    fn copy_symlink(src: &Path, dest: &Path) -> io::Result<()> {
+        if let Ok(metadata) = fs::symlink_metadata(dest) {
+            if metadata.is_dir() && !metadata.file_type().is_symlink() {
+                return Err(io::Error::new(
+                    io::ErrorKind::AlreadyExists,
+                    "destination is an existing directory",
+                ));
+            }
+            fs::remove_file(dest)?;
+        }
+
+        let target = fs::read_link(src)?;
+        create_symlink(&target, dest, src)
+    }
+
+    fn ensure_destination_outside_source(src: &Path, dest: &Path) -> io::Result<()> {
+        let source = fs::canonicalize(src)?;
+        let destination = Self::resolve_for_comparison(dest)?;
+        if destination == source || destination.starts_with(&source) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "cannot copy a directory into itself",
+            ));
+        }
+        Ok(())
+    }
+
+    fn resolve_for_comparison(path: &Path) -> io::Result<PathBuf> {
+        let absolute = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()?.join(path)
+        };
+        let normalized = normalize_path(&absolute);
+
+        let mut ancestor = normalized.as_path();
+        let mut suffix = Vec::new();
+        loop {
+            if let Ok(mut resolved) = fs::canonicalize(ancestor) {
+                for component in suffix.iter().rev() {
+                    resolved.push(component);
+                }
+                return Ok(resolved);
+            }
+
+            let name = ancestor.file_name().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "no existing destination ancestor")
+            })?;
+            suffix.push(name.to_os_string());
+            ancestor = ancestor.parent().ok_or_else(|| {
+                io::Error::new(io::ErrorKind::NotFound, "no existing destination ancestor")
+            })?;
+        }
+    }
+}
+
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            _ => normalized.push(component.as_os_str()),
+        }
+    }
+    normalized
+}
+
+#[cfg(unix)]
+fn create_symlink(target: &Path, dest: &Path, _source_link: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, dest)
+}
+
+#[cfg(windows)]
+fn create_symlink(target: &Path, dest: &Path, source_link: &Path) -> io::Result<()> {
+    if fs::metadata(source_link).is_ok_and(|metadata| metadata.is_dir()) {
+        std::os::windows::fs::symlink_dir(target, dest)
+    } else {
+        std::os::windows::fs::symlink_file(target, dest)
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
+fn create_symlink(_target: &Path, _dest: &Path, _source_link: &Path) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "copying symbolic links is not supported on this platform",
+    ))
 }

@@ -36,8 +36,7 @@ impl Applet for SortApplet {
                     break;
                 }
                 _ if arg.starts_with('-') && arg.len() > 1 && !arg.starts_with("--") => {
-                    let mut chars = arg[1..].chars().peekable();
-                    while let Some(ch) = chars.next() {
+                    for ch in arg[1..].chars() {
                         match ch {
                             'r' => reverse = true,
                             'n' => numeric = true,
@@ -118,12 +117,12 @@ impl SortApplet {
     fn read_file(path: &str) -> io::Result<Vec<String>> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
-        Ok(reader.lines().collect::<io::Result<Vec<_>>>()?)
+        reader.lines().collect::<io::Result<Vec<_>>>()
     }
 
     fn read_stdin() -> io::Result<Vec<String>> {
         let stdin = io::stdin();
         let reader = BufReader::new(stdin.lock());
-        Ok(reader.lines().collect::<io::Result<Vec<_>>>()?)
+        reader.lines().collect::<io::Result<Vec<_>>>()
     }
 }

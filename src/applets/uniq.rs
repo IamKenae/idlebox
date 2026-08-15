@@ -40,8 +40,7 @@ impl Applet for UniqApplet {
                     break;
                 }
                 _ if arg.starts_with('-') && arg.len() > 1 && !arg.starts_with("--") => {
-                    let mut chars = arg[1..].chars().peekable();
-                    while let Some(ch) = chars.next() {
+                    for ch in arg[1..].chars() {
                         match ch {
                             'c' => show_count = true,
                             'd' => repeated_only = true,
@@ -62,9 +61,7 @@ impl Applet for UniqApplet {
 
         let lines = match file {
             Some("-") | None => Self::read_stdin()?,
-            Some(path) => Self::read_file(path).map_err(|e| {
-                format!("uniq: {}: {}", path, e)
-            })?,
+            Some(path) => Self::read_file(path).map_err(|e| format!("uniq: {}: {}", path, e))?,
         };
 
         let stdout = io::stdout();
@@ -133,12 +130,12 @@ impl UniqApplet {
     fn read_file(path: &str) -> io::Result<Vec<String>> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
-        Ok(reader.lines().collect::<io::Result<Vec<_>>>()?)
+        reader.lines().collect::<io::Result<Vec<_>>>()
     }
 
     fn read_stdin() -> io::Result<Vec<String>> {
         let stdin = io::stdin();
         let reader = BufReader::new(stdin.lock());
-        Ok(reader.lines().collect::<io::Result<Vec<_>>>()?)
+        reader.lines().collect::<io::Result<Vec<_>>>()
     }
 }

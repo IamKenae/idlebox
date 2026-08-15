@@ -107,6 +107,12 @@ impl Applet for SuApplet {
 
         let target_user = user.unwrap_or("root");
 
+        let current_uid = unsafe { raw_getuid() };
+        if current_uid != 0 {
+            eprintln!("su: permission denied (only root can switch user)");
+            return Ok(1);
+        }
+
         let pw = match get_passwd_by_name(target_user) {
             Some(p) => p,
             None => {
@@ -125,13 +131,6 @@ impl Applet for SuApplet {
                 }
             }
         };
-
-        let current_uid = unsafe { raw_getuid() };
-
-        if current_uid != 0 {
-            eprintln!("su: permission denied (only root can switch user)");
-            return Ok(1);
-        }
 
         let shell_c = CString::new(shell_path.as_str()).map_err(|_| "invalid shell path")?;
 
@@ -170,11 +169,20 @@ impl Applet for SuApplet {
         }
 
         if pid == 0 {
+            if unsafe { raw_initgroups(user_val.as_ptr(), pw.gid) } != 0 {
+                unsafe {
+                    raw__exit(1);
+                }
+            }
             if unsafe { raw_setgid(pw.gid) } != 0 {
-                unsafe { raw__exit(1); }
+                unsafe {
+                    raw__exit(1);
+                }
             }
             if unsafe { raw_setuid(pw.uid) } != 0 {
-                unsafe { raw__exit(1); }
+                unsafe {
+                    raw__exit(1);
+                }
             }
 
             unsafe {
@@ -187,6 +195,12 @@ impl Applet for SuApplet {
                 }
             }
 
+            if login_shell && unsafe { raw_chdir(home_val.as_ptr()) } != 0 {
+                unsafe {
+                    raw__exit(1);
+                }
+            }
+
             let mut c_argv: Vec<*const i8> = exec_args.iter().map(|a| a.as_ptr()).collect();
             c_argv.push(std::ptr::null());
 
@@ -195,13 +209,18 @@ impl Applet for SuApplet {
             }
 
             eprintln!("su: failed to execute '{}'", shell_path);
-            unsafe { raw__exit(1); }
+            unsafe {
+                raw__exit(1);
+            }
         }
 
         let mut status: i32 = 0;
         loop {
             let ret = unsafe { raw_waitpid(pid, &mut status, 0) };
             if ret < 0 {
+                if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
                 break;
             }
             if unsafe { raw_wifexited(status) } {
@@ -246,7 +265,7 @@ struct PasswdInfo {
     shell: String,
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 #[repr(C)]
 struct Passwd {
     pw_name: *const i8,
@@ -256,6 +275,22 @@ struct Passwd {
     pw_gecos: *const i8,
     pw_dir: *const i8,
     pw_shell: *const i8,
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+#[repr(C)]
+struct Passwd {
+    pw_name: *const i8,
+    pw_passwd: *const i8,
+    pw_uid: u32,
+    pw_gid: u32,
+    pw_change: i64,
+    pw_class: *const i8,
+    pw_gecos: *const i8,
+    pw_dir: *const i8,
+    pw_shell: *const i8,
+    pw_expire: i64,
+    pw_fields: i32,
 }
 
 #[cfg(unix)]
@@ -304,6 +339,9 @@ extern "C" {
     #[link_name = "setgid"]
     fn raw_setgid(gid: u32) -> i32;
 
+    #[link_name = "initgroups"]
+    fn raw_initgroups(user: *const i8, group: u32) -> i32;
+
     #[link_name = "setuid"]
     fn raw_setuid(uid: u32) -> i32;
 
@@ -315,6 +353,9 @@ extern "C" {
 
     #[link_name = "setenv"]
     fn raw_setenv(name: *const i8, value: *const i8, overwrite: i32) -> i32;
+
+    #[link_name = "chdir"]
+    fn raw_chdir(path: *const i8) -> i32;
 
     #[link_name = "_exit"]
     fn raw__exit(status: i32) -> !;

@@ -122,11 +122,11 @@ fn resolve_gid(s: &str) -> Result<u32, String> {
 #[cfg(unix)]
 fn apply_chgrp(path: &str, uid: u32, gid: u32, recursive: bool) -> Result<(), std::io::Error> {
     let p = Path::new(path);
-    let c_path = CString::new(path).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+    let c_path =
+        CString::new(path).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
 
-    let is_symlink = p.symlink_metadata()
-        .map(|m| m.file_type().is_symlink())
-        .unwrap_or(false);
+    let metadata = p.symlink_metadata()?;
+    let is_symlink = metadata.file_type().is_symlink();
 
     let ret = if is_symlink {
         unsafe { raw_lchown(c_path.as_ptr(), uid, gid) }
@@ -139,7 +139,7 @@ fn apply_chgrp(path: &str, uid: u32, gid: u32, recursive: bool) -> Result<(), st
         return Err(err);
     }
 
-    if recursive && p.is_dir() {
+    if recursive && metadata.is_dir() {
         for entry in std::fs::read_dir(p)? {
             let entry = entry?;
             let entry_path = entry.path();

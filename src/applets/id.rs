@@ -1,4 +1,5 @@
 use crate::core::Applet;
+#[cfg(unix)]
 use std::io::{self, Write};
 
 pub struct IdApplet;
@@ -100,7 +101,7 @@ impl Applet for IdApplet {
                         writeln!(out, "{}", pw.gid)?;
                     }
                 } else if groups_only {
-                    let gids = get_supplementary_gids_by_name(&pw.name);
+                    let gids = get_supplementary_gids_by_name(&pw.name, pw.gid);
                     if name_only {
                         let names: Vec<String> = gids
                             .iter()
@@ -113,7 +114,7 @@ impl Applet for IdApplet {
                     }
                 } else {
                     let gname = get_group_name_by_gid(pw.gid).unwrap_or(pw.gid.to_string());
-                    let gids = get_supplementary_gids_by_name(&pw.name);
+                    let gids = get_supplementary_gids_by_name(&pw.name, pw.gid);
                     let groups_str = format_groups(&gids, name_only);
                     writeln!(
                         out,
@@ -182,11 +183,8 @@ impl Applet for IdApplet {
 
     #[cfg(windows)]
     fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
-        let username = std::env::var("USERNAME").unwrap_or_else(|_| "unknown".to_string());
-        let stdout = io::stdout();
-        let mut out = stdout.lock();
-        writeln!(out, "uid=0({}) gid=0", username)?;
-        Ok(0)
+        eprintln!("id: not supported on this platform");
+        Ok(1)
     }
 
     #[cfg(not(any(unix, windows)))]
@@ -314,29 +312,51 @@ fn get_group_name_by_gid(gid: u32) -> Option<String> {
 
 #[cfg(unix)]
 fn get_groups() -> Vec<u32> {
-    let mut ngroups: i32 = 64;
-    let mut buf: Vec<u32> = vec![0; ngroups as usize];
-    let ret = unsafe { raw_getgroups(&mut ngroups, buf.as_mut_ptr()) };
+    let count = unsafe { raw_getgroups(0, std::ptr::null_mut()) };
+    if count < 0 {
+        return vec![];
+    }
+
+    let mut buf = vec![0; count as usize];
+    let ret = unsafe { raw_getgroups(count, buf.as_mut_ptr()) };
     if ret < 0 {
         return vec![];
     }
     buf.truncate(ret as usize);
+
+    let effective_gid = unsafe { raw_getegid() };
+    if !buf.contains(&effective_gid) {
+        buf.insert(0, effective_gid);
+    }
     buf
 }
 
 #[cfg(unix)]
-fn get_supplementary_gids_by_name(username: &str) -> Vec<u32> {
+fn get_supplementary_gids_by_name(username: &str, primary_gid: u32) -> Vec<u32> {
     let c_name = match std::ffi::CString::new(username) {
         Ok(n) => n,
         Err(_) => return vec![],
     };
-    let mut ngroups: i32 = 64;
-    let mut buf: Vec<i32> = vec![0; ngroups as usize];
-    let ret = unsafe { raw_getgrouplist(c_name.as_ptr(), 0, buf.as_mut_ptr(), &mut ngroups) };
-    if ret < 0 {
+    let mut ngroups = 0;
+    unsafe {
+        raw_getgrouplist(
+            c_name.as_ptr(),
+            primary_gid,
+            std::ptr::null_mut(),
+            &mut ngroups,
+        );
+    }
+    if ngroups <= 0 {
         return vec![];
     }
-    buf.truncate(ret as usize);
+
+    let mut buf: Vec<i32> = vec![0; ngroups as usize];
+    let ret =
+        unsafe { raw_getgrouplist(c_name.as_ptr(), primary_gid, buf.as_mut_ptr(), &mut ngroups) };
+    if ret < 0 || ngroups < 0 {
+        return vec![];
+    }
+    buf.truncate(ngroups as usize);
     buf.iter().map(|&g| g as u32).collect()
 }
 
@@ -385,7 +405,7 @@ extern "C" {
     fn raw_getgrgid(gid: u32) -> *const Group;
 
     #[link_name = "getgroups"]
-    fn raw_getgroups(size: *mut i32, list: *mut u32) -> i32;
+    fn raw_getgroups(size: i32, list: *mut u32) -> i32;
 
     #[link_name = "getgrouplist"]
     fn raw_getgrouplist(user: *const i8, group: u32, groups: *mut i32, ngroups: *mut i32) -> i32;

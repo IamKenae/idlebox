@@ -39,8 +39,7 @@ impl Applet for GrepApplet {
                     break;
                 }
                 _ if arg.starts_with('-') && arg.len() > 1 && !arg.starts_with("--") => {
-                    let mut chars = arg[1..].chars().peekable();
-                    while let Some(ch) = chars.next() {
+                    for ch in arg[1..].chars() {
                         match ch {
                             'i' => ignore_case = true,
                             'v' => invert_match = true,
@@ -76,33 +75,22 @@ impl Applet for GrepApplet {
         let stdout = io::stdout();
         let mut out = stdout.lock();
         let multiple = files.len() > 1;
+        let options = GrepOptions {
+            pattern,
+            ignore_case,
+            invert_match,
+            show_line_number,
+            count_only,
+            multiple,
+        };
         let mut had_error = false;
         let mut total_matches = 0usize;
 
         for file in &files {
             let result = if *file == "-" {
-                Self::grep_stdin(
-                    &mut out,
-                    pattern,
-                    ignore_case,
-                    invert_match,
-                    show_line_number,
-                    count_only,
-                    multiple,
-                    *file,
-                )
+                Self::grep_stdin(&mut out, &options, file)
             } else {
-                Self::grep_file(
-                    &mut out,
-                    file,
-                    pattern,
-                    ignore_case,
-                    invert_match,
-                    show_line_number,
-                    count_only,
-                    multiple,
-                    file,
-                )
+                Self::grep_file(&mut out, file, &options, file)
             };
 
             match result {
@@ -138,95 +126,73 @@ impl Applet for GrepApplet {
     }
 }
 
+struct GrepOptions<'a> {
+    pattern: &'a str,
+    ignore_case: bool,
+    invert_match: bool,
+    show_line_number: bool,
+    count_only: bool,
+    multiple: bool,
+}
+
 impl GrepApplet {
     fn grep_file(
         out: &mut impl Write,
         path: &str,
-        pattern: &str,
-        ignore_case: bool,
-        invert_match: bool,
-        show_line_number: bool,
-        count_only: bool,
-        multiple: bool,
+        options: &GrepOptions<'_>,
         file_label: &str,
     ) -> io::Result<usize> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
-        Self::grep_reader(
-            out,
-            reader,
-            pattern,
-            ignore_case,
-            invert_match,
-            show_line_number,
-            count_only,
-            multiple,
-            file_label,
-        )
+        Self::grep_reader(out, reader, options, file_label)
     }
 
     fn grep_stdin(
         out: &mut impl Write,
-        pattern: &str,
-        ignore_case: bool,
-        invert_match: bool,
-        show_line_number: bool,
-        count_only: bool,
-        multiple: bool,
+        options: &GrepOptions<'_>,
         file_label: &str,
     ) -> io::Result<usize> {
         let stdin = io::stdin();
         let reader = BufReader::new(stdin.lock());
-        Self::grep_reader(
-            out,
-            reader,
-            pattern,
-            ignore_case,
-            invert_match,
-            show_line_number,
-            count_only,
-            multiple,
-            file_label,
-        )
+        Self::grep_reader(out, reader, options, file_label)
     }
 
     fn grep_reader<R: BufRead>(
         out: &mut impl Write,
         reader: R,
-        pattern: &str,
-        ignore_case: bool,
-        invert_match: bool,
-        show_line_number: bool,
-        count_only: bool,
-        multiple: bool,
+        options: &GrepOptions<'_>,
         file_label: &str,
     ) -> io::Result<usize> {
-        let pattern_compare = if ignore_case {
-            pattern.to_lowercase()
+        let pattern_compare = if options.ignore_case {
+            options.pattern.to_lowercase()
         } else {
-            pattern.to_string()
+            options.pattern.to_string()
         };
 
         let mut match_count = 0usize;
 
         for (idx, line_result) in reader.lines().enumerate() {
             let line = line_result?;
-            let line_compare = if ignore_case {
+            let line_compare = if options.ignore_case {
                 line.to_lowercase()
             } else {
                 line.clone()
             };
 
             let matches = line_compare.contains(&pattern_compare);
-            let should_print = if invert_match { !matches } else { matches };
+            let should_print = if options.invert_match {
+                !matches
+            } else {
+                matches
+            };
 
             if should_print {
                 match_count += 1;
-                if !count_only {
-                    if multiple {
+                if !options.count_only {
+                    if options.multiple {
                         write!(out, "{}:", file_label)?;
                     }
-                    if show_line_number {
+                    if options.show_line_number {
                         write!(out, "{}:", idx + 1)?;
                     }
                     writeln!(out, "{}", line)?;
@@ -234,8 +200,8 @@ impl GrepApplet {
             }
         }
 
-        if count_only {
-            if multiple {
+        if options.count_only {
+            if options.multiple {
                 write!(out, "{}:", file_label)?;
             }
             writeln!(out, "{}", match_count)?;

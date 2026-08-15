@@ -21,23 +21,26 @@ impl Applet for KillApplet {
         let mut signal: Option<i32> = None;
         let mut list_signals = false;
         let mut pids: Vec<i32> = Vec::new();
+        let mut end_options = false;
 
         let mut i = 0;
         while i < args.len() {
             let arg = &args[i];
-            if arg == "-l" || arg == "--list" {
+            if arg == "--" && !end_options {
+                end_options = true;
+            } else if !end_options && (arg == "-l" || arg == "--list") {
                 list_signals = true;
-            } else if arg == "-s" {
+            } else if !end_options && arg == "-s" {
                 i += 1;
                 if i >= args.len() {
                     eprintln!("kill: option '-s' requires an argument");
                     return Ok(1);
                 }
                 signal = Some(parse_signal(&args[i])?);
-            } else if arg.starts_with("-s=") {
+            } else if !end_options && arg.starts_with("-s=") {
                 let val = &arg[3..];
                 signal = Some(parse_signal(val)?);
-            } else if arg.starts_with('-') && arg.len() > 1 {
+            } else if !end_options && arg.starts_with('-') && arg.len() > 1 {
                 let sig_part = &arg[1..];
                 if let Ok(num) = sig_part.parse::<i32>() {
                     signal = Some(num);
@@ -116,7 +119,7 @@ fn parse_signal(s: &str) -> Result<i32, Box<dyn std::error::Error>> {
     signal_number_from_name(&name)
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn signal_number_from_name(name: &str) -> Result<i32, Box<dyn std::error::Error>> {
     match name {
         "SIGHUP" => Ok(1),
@@ -154,9 +157,65 @@ fn signal_number_from_name(name: &str) -> Result<i32, Box<dyn std::error::Error>
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn signal_number_from_name(name: &str) -> Result<i32, Box<dyn std::error::Error>> {
+    match name {
+        "SIGHUP" => Ok(1),
+        "SIGINT" => Ok(2),
+        "SIGQUIT" => Ok(3),
+        "SIGILL" => Ok(4),
+        "SIGTRAP" => Ok(5),
+        "SIGABRT" | "SIGIOT" => Ok(6),
+        "SIGEMT" => Ok(7),
+        "SIGFPE" => Ok(8),
+        "SIGKILL" => Ok(9),
+        "SIGBUS" => Ok(10),
+        "SIGSEGV" => Ok(11),
+        "SIGSYS" => Ok(12),
+        "SIGPIPE" => Ok(13),
+        "SIGALRM" => Ok(14),
+        "SIGTERM" => Ok(15),
+        "SIGURG" => Ok(16),
+        "SIGSTOP" => Ok(17),
+        "SIGTSTP" => Ok(18),
+        "SIGCONT" => Ok(19),
+        "SIGCHLD" => Ok(20),
+        "SIGTTIN" => Ok(21),
+        "SIGTTOU" => Ok(22),
+        "SIGIO" | "SIGPOLL" => Ok(23),
+        "SIGXCPU" => Ok(24),
+        "SIGXFSZ" => Ok(25),
+        "SIGVTALRM" => Ok(26),
+        "SIGPROF" => Ok(27),
+        "SIGWINCH" => Ok(28),
+        "SIGINFO" => Ok(29),
+        "SIGUSR1" => Ok(30),
+        "SIGUSR2" => Ok(31),
+        _ => Err(format!("kill: unknown signal: {}", name).into()),
+    }
+}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios"
+    ))
+))]
+fn signal_number_from_name(name: &str) -> Result<i32, Box<dyn std::error::Error>> {
+    Err(format!(
+        "kill: named signals are not supported on this Unix platform: {}",
+        name
+    )
+    .into())
+}
+
 #[cfg(windows)]
 fn signal_number_from_name(name: &str) -> Result<i32, Box<dyn std::error::Error>> {
     match name {
+        "SIGKILL" => Ok(9),
         "SIGINT" => Ok(2),
         "SIGILL" => Ok(4),
         "SIGFPE" => Ok(8),
@@ -173,7 +232,7 @@ fn signal_number_from_name(name: &str) -> Result<i32, Box<dyn std::error::Error>
     Err(format!("kill: unknown signal: {}", name).into())
 }
 
-#[cfg(unix)]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn signal_name(number: i32) -> &'static str {
     match number {
         1 => "HUP",
@@ -211,9 +270,61 @@ fn signal_name(number: i32) -> &'static str {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn signal_name(number: i32) -> &'static str {
+    match number {
+        1 => "HUP",
+        2 => "INT",
+        3 => "QUIT",
+        4 => "ILL",
+        5 => "TRAP",
+        6 => "ABRT",
+        7 => "EMT",
+        8 => "FPE",
+        9 => "KILL",
+        10 => "BUS",
+        11 => "SEGV",
+        12 => "SYS",
+        13 => "PIPE",
+        14 => "ALRM",
+        15 => "TERM",
+        16 => "URG",
+        17 => "STOP",
+        18 => "TSTP",
+        19 => "CONT",
+        20 => "CHLD",
+        21 => "TTIN",
+        22 => "TTOU",
+        23 => "IO",
+        24 => "XCPU",
+        25 => "XFSZ",
+        26 => "VTALRM",
+        27 => "PROF",
+        28 => "WINCH",
+        29 => "INFO",
+        30 => "USR1",
+        31 => "USR2",
+        _ => "UNKNOWN",
+    }
+}
+
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios"
+    ))
+))]
+fn signal_name(_number: i32) -> &'static str {
+    "UNKNOWN"
+}
+
 #[cfg(windows)]
 fn signal_name(number: i32) -> &'static str {
     match number {
+        9 => "KILL",
         2 => "INT",
         4 => "ILL",
         8 => "FPE",
@@ -231,7 +342,12 @@ fn signal_name(number: i32) -> &'static str {
     "UNKNOWN"
 }
 
-#[cfg(unix)]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios"
+))]
 fn print_signal_list(out: &mut impl Write) -> Result<(), io::Error> {
     for i in 1..=31 {
         writeln!(out, "{:>2}) SIG{}", i, signal_name(i))?;
@@ -239,9 +355,22 @@ fn print_signal_list(out: &mut impl Write) -> Result<(), io::Error> {
     Ok(())
 }
 
+#[cfg(all(
+    unix,
+    not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "macos",
+        target_os = "ios"
+    ))
+))]
+fn print_signal_list(_out: &mut impl Write) -> Result<(), io::Error> {
+    Ok(())
+}
+
 #[cfg(windows)]
 fn print_signal_list(out: &mut impl Write) -> Result<(), io::Error> {
-    for &i in &[2, 4, 8, 11, 15, 21, 22] {
+    for &i in &[9, 15] {
         writeln!(out, "{:>2}) SIG{}", i, signal_name(i))?;
     }
     Ok(())
@@ -262,25 +391,80 @@ fn send_signal(pid: i32, sig: i32) -> Result<(), io::Error> {
 }
 
 #[cfg(windows)]
-fn send_signal(pid: i32, _sig: i32) -> Result<(), io::Error> {
+fn send_signal(pid: i32, sig: i32) -> Result<(), io::Error> {
     use std::process::Command;
-    let output = Command::new("taskkill")
-        .args(&["/PID", &pid.to_string(), "/F"])
-        .output()?;
+
+    if sig == 0 {
+        return check_process_exists_windows(pid);
+    }
+    if !matches!(sig, 9 | 15) {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            format!("signal {} is not supported on Windows", sig),
+        ));
+    }
+
+    let mut command = Command::new("taskkill");
+    command.args(["/PID", &pid.to_string()]);
+    if sig == 9 {
+        command.arg("/F");
+    }
+    let output = command.output()?;
     if output.status.success() {
         Ok(())
     } else {
-        Err(io::Error::new(io::ErrorKind::Other, "taskkill failed"))
+        let message = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(io::Error::other(if message.is_empty() {
+            "taskkill failed".to_string()
+        } else {
+            message
+        }))
     }
+}
+
+#[cfg(windows)]
+fn check_process_exists_windows(pid: i32) -> Result<(), io::Error> {
+    if pid <= 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "process ID must be positive on Windows",
+        ));
+    }
+
+    let handle = unsafe { raw_open_process(0x1000, 0, pid as u32) };
+    if handle.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    unsafe {
+        raw_close_handle(handle);
+    }
+    Ok(())
 }
 
 #[cfg(not(any(unix, windows)))]
 fn send_signal(_pid: i32, _sig: i32) -> Result<(), io::Error> {
-    Err(io::Error::new(io::ErrorKind::Unsupported, "signals not supported"))
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "signals not supported",
+    ))
 }
 
 #[cfg(unix)]
 extern "C" {
     #[link_name = "kill"]
     fn raw_kill(pid: i32, sig: i32) -> i32;
+}
+
+#[cfg(windows)]
+#[link(name = "kernel32")]
+extern "system" {
+    #[link_name = "OpenProcess"]
+    fn raw_open_process(
+        desired_access: u32,
+        inherit_handle: i32,
+        process_id: u32,
+    ) -> *mut std::ffi::c_void;
+
+    #[link_name = "CloseHandle"]
+    fn raw_close_handle(handle: *mut std::ffi::c_void) -> i32;
 }

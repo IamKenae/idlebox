@@ -1,5 +1,5 @@
-mod core;
 mod applets;
+mod core;
 
 use std::env;
 use std::path::Path;
@@ -9,15 +9,15 @@ use crate::core::Dispatcher;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    
+
     let argv0 = Path::new(&args[0])
         .file_name()
         .and_then(|s| s.to_str())
         .map(|s| s.trim_end_matches(".exe"))
         .unwrap_or("idlebox");
-    
+
     let dispatcher = Dispatcher::new();
-    
+
     let (applet_name, applet_args) = if argv0 == "idlebox" {
         if args.len() < 2 {
             print_usage(&dispatcher);
@@ -27,7 +27,7 @@ fn main() {
     } else {
         (argv0, &args[1..])
     };
-    
+
     if applet_name == "list" {
         println!("Available applets:");
         dispatcher.list_applets();
@@ -44,15 +44,21 @@ fn main() {
             }
         }
     }
-    
+
     match dispatcher.dispatch(applet_name, applet_args) {
         Ok(exit_code) => process::exit(exit_code),
-        Err(_) => process::exit(1),
+        Err(e) => {
+            eprintln!("{}", e);
+            process::exit(1);
+        }
     }
 }
 
 fn print_usage(dispatcher: &Dispatcher) {
-    println!("IdleBox v0.1.0 - A modern BusyBox alternative");
+    println!(
+        "IdleBox v{} - A modern BusyBox alternative",
+        env!("CARGO_PKG_VERSION")
+    );
     println!();
     println!("Usage:");
     println!("  idlebox <applet> [args...]    # Run an applet");

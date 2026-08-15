@@ -16,7 +16,7 @@ pub fn install(target: Option<&str>) -> Result<i32, Box<dyn std::error::Error>> 
     {
         let _ = target;
         eprintln!("idlebox: --install is only supported on Unix-like systems");
-        return Err("unsupported platform".into());
+        Err("unsupported platform".into())
     }
 
     #[cfg(unix)]

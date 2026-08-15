@@ -84,7 +84,13 @@ impl Applet for DfApplet {
                     continue;
                 }
                 if let Ok(stat) = statvfs_linux(&mount.mount_point) {
-                    print_statvfs_line(&mut out, &mount.device, &mount.mount_point, &stat, human_readable)?;
+                    print_statvfs_line(
+                        &mut out,
+                        &mount.device,
+                        &mount.mount_point,
+                        &stat,
+                        human_readable,
+                    )?;
                 }
             }
         }
@@ -116,8 +122,7 @@ impl Applet for DfApplet {
                 print_statfs_line(&mut out, &info.0, &path, &info.1, human_readable)?;
             }
         } else {
-            let output = std::process::Command::new("mount")
-                .output()?;
+            let output = std::process::Command::new("mount").output()?;
             let stdout_str = String::from_utf8_lossy(&output.stdout);
             for line in stdout_str.lines() {
                 if let Some(info) = parse_mount_line(line) {
@@ -153,12 +158,12 @@ impl Applet for DfApplet {
 
         if let Some(path) = target_path {
             let info = get_disk_space_windows(path)?;
-            print_disk_line(&mut out, &info.0, path, &info.1, human_readable)?;
+            print_disk_line(&mut out, path, &info, human_readable)?;
         } else {
             for drive_letter in b'A'..=b'Z' {
                 let drive = format!("{}:\\", drive_letter as char);
                 if let Ok(info) = get_disk_space_windows(&drive) {
-                    print_disk_line(&mut out, &info.0, &drive, &info.1, human_readable)?;
+                    print_disk_line(&mut out, &drive, &info, human_readable)?;
                 }
             }
         }
@@ -218,14 +223,18 @@ fn unescape_mount_path(s: &str) -> String {
     let mut chars = s.chars();
     while let Some(c) = chars.next() {
         if c == '\\' {
-            let mut hex = String::new();
+            let mut escaped = String::new();
             for _ in 0..3 {
                 if let Some(h) = chars.next() {
-                    hex.push(h);
+                    escaped.push(h);
                 }
             }
-            if let Ok(code) = u8::from_str_radix(&hex, 16) {
+            if escaped.len() == 3 && escaped.chars().all(|digit| matches!(digit, '0'..='7')) {
+                let code = u8::from_str_radix(&escaped, 8).expect("validated octal escape");
                 result.push(code as char);
+            } else {
+                result.push('\\');
+                result.push_str(&escaped);
             }
         } else {
             result.push(c);
@@ -248,13 +257,11 @@ fn find_mount_for_path(path: &str) -> Result<MountEntry, io::Error> {
 
     for mount in &mounts {
         for candidate in [&canonical_str, path] {
-            if candidate == mount.mount_point
-                || candidate.starts_with(&format!("{}/", mount.mount_point))
+            if std::path::Path::new(candidate).starts_with(&mount.mount_point)
+                && mount.mount_point.len() > best_len
             {
-                if mount.mount_point.len() > best_len {
-                    best_len = mount.mount_point.len();
-                    best_match = Some(mount);
-                }
+                best_len = mount.mount_point.len();
+                best_match = Some(mount);
             }
         }
     }
@@ -353,18 +360,38 @@ fn statfs_macos(path: &str) -> Result<(String, String), io::Error> {
 }
 
 fn print_header(out: &mut impl Write) -> Result<(), io::Error> {
-    writeln!(out, "{:<20} {:>10} {:>10} {:>10} {:>5}  {}", "Filesystem", "Size", "Used", "Avail", "Use%", "Mounted on")?;
+    writeln!(
+        out,
+        "{:<20} {:>10} {:>10} {:>10} {:>5}  Mounted on",
+        "Filesystem", "Size", "Used", "Avail", "Use%"
+    )?;
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn print_mount_entry(out: &mut impl Write, mount: &MountEntry, human_readable: bool) -> Result<(), io::Error> {
+fn print_mount_entry(
+    out: &mut impl Write,
+    mount: &MountEntry,
+    human_readable: bool,
+) -> Result<(), io::Error> {
     let stat = statvfs_linux(&mount.mount_point)?;
-    print_statvfs_line(out, &mount.device, &mount.mount_point, &stat, human_readable)
+    print_statvfs_line(
+        out,
+        &mount.device,
+        &mount.mount_point,
+        &stat,
+        human_readable,
+    )
 }
 
 #[cfg(target_os = "linux")]
-fn print_statvfs_line(out: &mut impl Write, device: &str, mount_point: &str, stat: &Statvfs, human_readable: bool) -> Result<(), io::Error> {
+fn print_statvfs_line(
+    out: &mut impl Write,
+    device: &str,
+    mount_point: &str,
+    stat: &Statvfs,
+    human_readable: bool,
+) -> Result<(), io::Error> {
     let total = stat.block_size * stat.blocks;
     let free = stat.block_size * stat.blocks_free;
     let avail = stat.block_size * stat.blocks_avail;
@@ -381,15 +408,29 @@ fn print_statvfs_line(out: &mut impl Write, device: &str, mount_point: &str, sta
         let block_total = total / 1024;
         let block_used = used / 1024;
         let block_avail = avail / 1024;
-        (format!("{}K", block_total), format!("{}K", block_used), format!("{}K", block_avail))
+        (
+            format!("{}K", block_total),
+            format!("{}K", block_used),
+            format!("{}K", block_avail),
+        )
     };
 
-    writeln!(out, "{:<20} {:>10} {:>10} {:>10} {:>4.0}%  {}", device, size_s, used_s, avail_s, use_pct, mount_point)?;
+    writeln!(
+        out,
+        "{:<20} {:>10} {:>10} {:>10} {:>4.0}%  {}",
+        device, size_s, used_s, avail_s, use_pct, mount_point
+    )?;
     Ok(())
 }
 
 #[cfg(target_os = "macos")]
-fn print_statfs_line(out: &mut impl Write, device: &str, mount_point: &str, info: &str, _human_readable: bool) -> Result<(), io::Error> {
+fn print_statfs_line(
+    out: &mut impl Write,
+    device: &str,
+    mount_point: &str,
+    info: &str,
+    _human_readable: bool,
+) -> Result<(), io::Error> {
     let parts: Vec<&str> = info.split_whitespace().collect();
     if parts.len() >= 4 {
         let total_kb: u64 = parts[0].parse().unwrap_or(0);
@@ -398,20 +439,30 @@ fn print_statfs_line(out: &mut impl Write, device: &str, mount_point: &str, info
         let use_pct_str = parts[3].trim_end_matches('%');
         let use_pct: f64 = use_pct_str.parse().unwrap_or(0.0);
 
-        writeln!(out, "{:<20} {:>10} {:>10} {:>10} {:>4.0}%  {}",
+        writeln!(
+            out,
+            "{:<20} {:>10} {:>10} {:>10} {:>4.0}%  {}",
             device,
             format!("{}K", total_kb),
             format!("{}K", used_kb),
             format!("{}K", avail_kb),
             use_pct,
-            mount_point)?;
+            mount_point
+        )?;
     }
     Ok(())
 }
 
 #[cfg(windows)]
-fn get_disk_space_windows(path: &str) -> Result<(String, String), io::Error> {
-    use std::fs;
+struct WindowsDiskSpace {
+    total: u64,
+    available: u64,
+    free: u64,
+}
+
+#[cfg(windows)]
+fn get_disk_space_windows(path: &str) -> Result<WindowsDiskSpace, io::Error> {
+    use std::os::windows::ffi::OsStrExt;
     use std::path::Path;
 
     let p = Path::new(path);
@@ -419,21 +470,81 @@ fn get_disk_space_windows(path: &str) -> Result<(String, String), io::Error> {
         return Err(io::Error::new(io::ErrorKind::NotFound, "path not found"));
     }
 
-    let test_file = p.join(".idlebox_df_probe");
-    let created = fs::write(&test_file, b"x").is_ok();
-    let _ = fs::remove_file(&test_file);
+    let query_path = if p.is_file() {
+        p.parent().unwrap_or(p)
+    } else {
+        p
+    };
+    let wide_path: Vec<u16> = query_path
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
 
-    let total_str = if created { "NTFS".to_string() } else { "Unknown".to_string() };
-    Ok((total_str, format!("{}B", 0)))
+    let mut available = 0u64;
+    let mut total = 0u64;
+    let mut free = 0u64;
+    let result = unsafe {
+        raw_get_disk_free_space_ex_w(wide_path.as_ptr(), &mut available, &mut total, &mut free)
+    };
+    if result == 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    Ok(WindowsDiskSpace {
+        total,
+        available,
+        free,
+    })
 }
 
 #[cfg(windows)]
-fn print_disk_line(out: &mut impl Write, _fs_type: &str, mount_point: &str, _info: &str, _human_readable: bool) -> Result<(), io::Error> {
-    writeln!(out, "{:<20} {:>10} {:>10} {:>10} {:>5}  {}", mount_point, "-", "-", "-", "-", mount_point)?;
+fn print_disk_line(
+    out: &mut impl Write,
+    mount_point: &str,
+    info: &WindowsDiskSpace,
+    human_readable: bool,
+) -> Result<(), io::Error> {
+    let used = info.total.saturating_sub(info.free);
+    let use_pct = if used + info.available == 0 {
+        0.0
+    } else {
+        used as f64 / (used + info.available) as f64 * 100.0
+    };
+    let (total, used, available) = if human_readable {
+        (
+            human_size(info.total),
+            human_size(used),
+            human_size(info.available),
+        )
+    } else {
+        (
+            format!("{}K", info.total / 1024),
+            format!("{}K", used / 1024),
+            format!("{}K", info.available / 1024),
+        )
+    };
+    writeln!(
+        out,
+        "{:<20} {:>10} {:>10} {:>10} {:>4.0}%  {}",
+        mount_point, total, used, available, use_pct, mount_point
+    )?;
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(windows)]
+#[link(name = "kernel32")]
+extern "system" {
+    #[link_name = "GetDiskFreeSpaceExW"]
+    fn raw_get_disk_free_space_ex_w(
+        directory_name: *const u16,
+        free_bytes_available: *mut u64,
+        total_bytes: *mut u64,
+        total_free_bytes: *mut u64,
+    ) -> i32;
+}
+
+#[cfg(any(target_os = "linux", windows))]
 fn human_size(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "K", "M", "G", "T", "P"];
     let mut size = bytes as f64;
@@ -446,5 +557,18 @@ fn human_size(bytes: u64) -> String {
         format!("{}{}", bytes, UNITS[0])
     } else {
         format!("{:.1}{}", size, UNITS[idx])
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::unescape_mount_path;
+
+    #[test]
+    fn proc_mount_escapes_are_octal() {
+        assert_eq!(
+            unescape_mount_path(r"/path\040with\011space"),
+            "/path with\tspace"
+        );
     }
 }

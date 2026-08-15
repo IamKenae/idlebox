@@ -117,10 +117,15 @@ fn parse_mode(s: &str) -> Result<u32, String> {
 #[cfg(unix)]
 fn apply_chmod(path: &str, mode: u32, recursive: bool) -> Result<(), std::io::Error> {
     let p = Path::new(path);
+    let metadata = fs::symlink_metadata(p)?;
+    if metadata.file_type().is_symlink() {
+        return Ok(());
+    }
+
     let perms = fs::Permissions::from_mode(mode);
     fs::set_permissions(p, perms)?;
 
-    if recursive && p.is_dir() {
+    if recursive && metadata.is_dir() {
         for entry in fs::read_dir(p)? {
             let entry = entry?;
             let entry_path = entry.path();

@@ -179,8 +179,8 @@ fn parse_additive(args: &[String], pos: &mut usize) -> Result<Value, ()> {
         let l = left.as_integer()?;
         let r = right.as_integer()?;
         left = Value::Integer(match op.as_str() {
-            "+" => l + r,
-            "-" => l - r,
+            "+" => l.checked_add(r).ok_or(())?,
+            "-" => l.checked_sub(r).ok_or(())?,
             _ => unreachable!(),
         });
     }
@@ -198,19 +198,9 @@ fn parse_multiplicative(args: &[String], pos: &mut usize) -> Result<Value, ()> {
         let l = left.as_integer()?;
         let r = right.as_integer()?;
         left = Value::Integer(match op.as_str() {
-            "*" => l * r,
-            "/" => {
-                if r == 0 {
-                    return Err(());
-                }
-                l / r
-            }
-            "%" => {
-                if r == 0 {
-                    return Err(());
-                }
-                l % r
-            }
+            "*" => l.checked_mul(r).ok_or(())?,
+            "/" => l.checked_div(r).ok_or(())?,
+            "%" => l.checked_rem(r).ok_or(())?,
             _ => unreachable!(),
         });
     }
@@ -231,7 +221,7 @@ fn parse_unary(args: &[String], pos: &mut usize) -> Result<Value, ()> {
             }
             let s = &args[*pos];
             *pos += 1;
-            Ok(Value::Integer(s.len() as i64))
+            Ok(Value::Integer(s.chars().count() as i64))
         }
         "substr" => {
             *pos += 1;
@@ -240,18 +230,21 @@ fn parse_unary(args: &[String], pos: &mut usize) -> Result<Value, ()> {
             }
             let s = &args[*pos];
             *pos += 1;
-            let start: usize = args[*pos].parse::<i64>().map_err(|_| ())? as usize;
+            let start = args[*pos].parse::<i64>().map_err(|_| ())?;
             *pos += 1;
-            let len: usize = args[*pos].parse::<i64>().map_err(|_| ())? as usize;
+            let len = args[*pos].parse::<i64>().map_err(|_| ())?;
             *pos += 1;
 
-            if start == 0 || start > s.len() {
+            if start <= 0 || len <= 0 {
                 return Ok(Value::Str(String::new()));
             }
 
-            let start_idx = start - 1;
-            let end_idx = std::cmp::min(start_idx + len, s.len());
-            Ok(Value::Str(s[start_idx..end_idx].to_string()))
+            let result = s
+                .chars()
+                .skip((start - 1) as usize)
+                .take(len as usize)
+                .collect();
+            Ok(Value::Str(result))
         }
         _ => {
             let val = args[*pos].clone();

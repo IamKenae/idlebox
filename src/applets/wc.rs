@@ -45,8 +45,7 @@ impl Applet for WcApplet {
                     break;
                 }
                 _ if arg.starts_with('-') && arg.len() > 1 && !arg.starts_with("--") => {
-                    let mut chars = arg[1..].chars().peekable();
-                    while let Some(ch) = chars.next() {
+                    for ch in arg[1..].chars() {
                         match ch {
                             'l' => show_lines = true,
                             'w' => show_words = true,
@@ -74,7 +73,12 @@ impl Applet for WcApplet {
 
         let stdout = io::stdout();
         let mut out = stdout.lock();
-        let mut total = Counts { lines: 0, words: 0, bytes: 0, chars: 0 };
+        let mut total = Counts {
+            lines: 0,
+            words: 0,
+            bytes: 0,
+            chars: 0,
+        };
         let mut had_error = false;
 
         for file in &files {
@@ -87,7 +91,9 @@ impl Applet for WcApplet {
             match result {
                 Ok(counts) => {
                     let label = if *file == "-" { None } else { Some(*file) };
-                    Self::print_counts(&mut out, &counts, show_lines, show_words, show_bytes, show_chars, label)?;
+                    Self::print_counts(
+                        &mut out, &counts, show_lines, show_words, show_bytes, show_chars, label,
+                    )?;
                     total.lines += counts.lines;
                     total.words += counts.words;
                     total.bytes += counts.bytes;
@@ -102,10 +108,22 @@ impl Applet for WcApplet {
 
         if files.len() > 1 {
             let total_label: Option<&str> = Some("total");
-            Self::print_counts(&mut out, &total, show_lines, show_words, show_bytes, show_chars, total_label)?;
+            Self::print_counts(
+                &mut out,
+                &total,
+                show_lines,
+                show_words,
+                show_bytes,
+                show_chars,
+                total_label,
+            )?;
         }
 
-        if had_error { Ok(1) } else { Ok(0) }
+        if had_error {
+            Ok(1)
+        } else {
+            Ok(0)
+        }
     }
 
     fn help(&self) {
@@ -146,7 +164,12 @@ impl WcApplet {
         let lines = text.chars().filter(|&c| c == '\n').count();
         let words = text.split_whitespace().count();
 
-        Ok(Counts { lines, words, bytes, chars })
+        Ok(Counts {
+            lines,
+            words,
+            bytes,
+            chars,
+        })
     }
 
     fn print_counts(
@@ -159,10 +182,18 @@ impl WcApplet {
         name: Option<&str>,
     ) -> io::Result<()> {
         let mut parts: Vec<String> = Vec::new();
-        if show_lines { parts.push(format!("{:>7}", counts.lines)); }
-        if show_words { parts.push(format!("{:>7}", counts.words)); }
-        if show_bytes { parts.push(format!("{:>7}", counts.bytes)); }
-        if show_chars { parts.push(format!("{:>7}", counts.chars)); }
+        if show_lines {
+            parts.push(format!("{:>7}", counts.lines));
+        }
+        if show_words {
+            parts.push(format!("{:>7}", counts.words));
+        }
+        if show_bytes {
+            parts.push(format!("{:>7}", counts.bytes));
+        }
+        if show_chars {
+            parts.push(format!("{:>7}", counts.chars));
+        }
         if let Some(n) = name {
             writeln!(out, "{} {}", parts.join(""), n)?;
         } else {

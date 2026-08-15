@@ -41,7 +41,13 @@ impl Applet for PsApplet {
         let stdout = io::stdout();
         let mut out = stdout.lock();
 
-        let default_cols = vec!["pid".to_string(), "tty".to_string(), "stat".to_string(), "time".to_string(), "cmd".to_string()];
+        let default_cols = vec![
+            "pid".to_string(),
+            "tty".to_string(),
+            "stat".to_string(),
+            "time".to_string(),
+            "cmd".to_string(),
+        ];
         let cols_ref: &[String] = match &custom_cols {
             Some(ref c) => c.as_slice(),
             None => default_cols.as_slice(),
@@ -80,7 +86,13 @@ impl Applet for PsApplet {
         let stdout = io::stdout();
         let mut out = stdout.lock();
 
-        let default_cols = vec!["pid".to_string(), "tty".to_string(), "stat".to_string(), "time".to_string(), "cmd".to_string()];
+        let default_cols = vec![
+            "pid".to_string(),
+            "tty".to_string(),
+            "stat".to_string(),
+            "time".to_string(),
+            "cmd".to_string(),
+        ];
         let cols_ref: &[String] = match &custom_cols {
             Some(ref c) => c.as_slice(),
             None => default_cols.as_slice(),
@@ -95,9 +107,7 @@ impl Applet for PsApplet {
             vec!["-o", "pid,tty,stat,time,comm"]
         };
 
-        let output = std::process::Command::new("ps")
-            .args(&ps_args)
-            .output()?;
+        let output = std::process::Command::new("ps").args(&ps_args).output()?;
 
         let stdout_str = String::from_utf8_lossy(&output.stdout);
         let mut first = true;
@@ -113,7 +123,13 @@ impl Applet for PsApplet {
                 let stat = parts[2].to_string();
                 let time = parts[3].to_string();
                 let cmd = parts[4..].join(" ");
-                let entry = ProcEntry { pid, tty, stat, time, cmd };
+                let entry = ProcEntry {
+                    pid,
+                    tty,
+                    stat,
+                    time,
+                    cmd,
+                };
                 print_entry_macos(&mut out, &entry, &col_vec)?;
             }
         }
@@ -195,6 +211,7 @@ impl Applet for PsApplet {
     }
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 struct ProcEntry {
     pid: u32,
     tty: String,
@@ -357,7 +374,11 @@ fn print_header(out: &mut impl Write, cols: &[&str]) -> Result<(), io::Error> {
 }
 
 #[cfg(target_os = "linux")]
-fn print_entry_linux(out: &mut impl Write, entry: &ProcEntry, cols: &[&str]) -> Result<(), io::Error> {
+fn print_entry_linux(
+    out: &mut impl Write,
+    entry: &ProcEntry,
+    cols: &[&str],
+) -> Result<(), io::Error> {
     let mut parts = Vec::new();
     for col in cols {
         match *col {
@@ -374,7 +395,11 @@ fn print_entry_linux(out: &mut impl Write, entry: &ProcEntry, cols: &[&str]) -> 
 }
 
 #[cfg(target_os = "macos")]
-fn print_entry_macos(out: &mut impl Write, entry: &ProcEntry, cols: &[&str]) -> Result<(), io::Error> {
+fn print_entry_macos(
+    out: &mut impl Write,
+    entry: &ProcEntry,
+    cols: &[&str],
+) -> Result<(), io::Error> {
     let mut parts = Vec::new();
     for col in cols {
         match *col {
@@ -391,7 +416,12 @@ fn print_entry_macos(out: &mut impl Write, entry: &ProcEntry, cols: &[&str]) -> 
 }
 
 #[cfg(windows)]
-fn print_entry_windows(out: &mut impl Write, pid: u32, cmd: &str, cols: &[&str]) -> Result<(), io::Error> {
+fn print_entry_windows(
+    out: &mut impl Write,
+    pid: u32,
+    cmd: &str,
+    cols: &[&str],
+) -> Result<(), io::Error> {
     let mut parts = Vec::new();
     for col in cols {
         match *col {

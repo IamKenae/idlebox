@@ -27,18 +27,22 @@ impl Applet for HeadApplet {
                     if i >= args.len() {
                         return Err("head: option requires an argument -- 'n'".into());
                     }
-                    line_count = Some(args[i].parse().map_err(|_| {
-                        format!("head: invalid number of lines: '{}'", args[i])
-                    })?);
+                    line_count =
+                        Some(args[i].parse().map_err(|_| {
+                            format!("head: invalid number of lines: '{}'", args[i])
+                        })?);
+                    byte_count = None;
                 }
                 "-c" | "--bytes" => {
                     i += 1;
                     if i >= args.len() {
                         return Err("head: option requires an argument -- 'c'".into());
                     }
-                    byte_count = Some(args[i].parse().map_err(|_| {
-                        format!("head: invalid number of bytes: '{}'", args[i])
-                    })?);
+                    byte_count =
+                        Some(args[i].parse().map_err(|_| {
+                            format!("head: invalid number of bytes: '{}'", args[i])
+                        })?);
+                    line_count = None;
                 }
                 "--" => {
                     files.extend(args[i + 1..].iter().map(|s| s.as_str()));
@@ -46,56 +50,49 @@ impl Applet for HeadApplet {
                 }
                 _ if arg.starts_with("--lines=") => {
                     let val = &arg["--lines=".len()..];
-                    line_count = Some(val.parse().map_err(|_| {
-                        format!("head: invalid number of lines: '{}'", val)
-                    })?);
+                    line_count = Some(
+                        val.parse()
+                            .map_err(|_| format!("head: invalid number of lines: '{}'", val))?,
+                    );
+                    byte_count = None;
                 }
                 _ if arg.starts_with("--bytes=") => {
                     let val = &arg["--bytes=".len()..];
-                    byte_count = Some(val.parse().map_err(|_| {
-                        format!("head: invalid number of bytes: '{}'", val)
-                    })?);
+                    byte_count = Some(
+                        val.parse()
+                            .map_err(|_| format!("head: invalid number of bytes: '{}'", val))?,
+                    );
+                    line_count = None;
                 }
                 _ if arg.starts_with('-') && arg.len() > 1 => {
-                    let mut chars = arg[1..].chars().peekable();
-                    while let Some(ch) = chars.next() {
-                        match ch {
-                            'n' => {
-                                let val: String = chars.collect();
-                                if val.is_empty() {
-                                    i += 1;
-                                    if i >= args.len() {
-                                        return Err("head: option requires an argument -- 'n'".into());
-                                    }
-                                    line_count = Some(args[i].parse().map_err(|_| {
-                                        format!("head: invalid number of lines: '{}'", args[i])
-                                    })?);
-                                } else {
-                                    line_count = Some(val.parse().map_err(|_| {
-                                        format!("head: invalid number of lines: '{}'", val)
-                                    })?);
-                                }
-                                break;
-                            }
-                            'c' => {
-                                let val: String = chars.collect();
-                                if val.is_empty() {
-                                    i += 1;
-                                    if i >= args.len() {
-                                        return Err("head: option requires an argument -- 'c'".into());
-                                    }
-                                    byte_count = Some(args[i].parse().map_err(|_| {
-                                        format!("head: invalid number of bytes: '{}'", args[i])
-                                    })?);
-                                } else {
-                                    byte_count = Some(val.parse().map_err(|_| {
-                                        format!("head: invalid number of bytes: '{}'", val)
-                                    })?);
-                                }
-                                break;
-                            }
-                            _ => return Err(format!("head: invalid option -- '{}'", ch).into()),
+                    let mut chars = arg[1..].chars();
+                    let option = chars.next().expect("non-empty short option");
+                    let mut value: String = chars.collect();
+                    if value.is_empty() {
+                        i += 1;
+                        if i >= args.len() {
+                            return Err(format!(
+                                "head: option requires an argument -- '{}'",
+                                option
+                            )
+                            .into());
                         }
+                        value = args[i].clone();
+                    }
+                    match option {
+                        'n' => {
+                            line_count = Some(value.parse().map_err(|_| {
+                                format!("head: invalid number of lines: '{}'", value)
+                            })?);
+                            byte_count = None;
+                        }
+                        'c' => {
+                            byte_count = Some(value.parse().map_err(|_| {
+                                format!("head: invalid number of bytes: '{}'", value)
+                            })?);
+                            line_count = None;
+                        }
+                        _ => return Err(format!("head: invalid option -- '{}'", option).into()),
                     }
                 }
                 _ => files.push(arg),
@@ -129,12 +126,10 @@ impl Applet for HeadApplet {
                 } else {
                     Self::head_lines_stdin(&mut out, lines)
                 }
+            } else if let Some(bytes) = byte_count {
+                Self::head_bytes_file(file, &mut out, bytes)
             } else {
-                if let Some(bytes) = byte_count {
-                    Self::head_bytes_file(file, &mut out, bytes)
-                } else {
-                    Self::head_lines_file(file, &mut out, lines)
-                }
+                Self::head_lines_file(file, &mut out, lines)
             };
 
             if let Err(e) = result {
@@ -143,7 +138,11 @@ impl Applet for HeadApplet {
             }
         }
 
-        if had_error { Ok(1) } else { Ok(0) }
+        if had_error {
+            Ok(1)
+        } else {
+            Ok(0)
+        }
     }
 
     fn help(&self) {
@@ -172,15 +171,19 @@ impl HeadApplet {
         Self::head_lines_reader(reader, out, n)
     }
 
-    fn head_lines_reader<R: BufRead>(mut reader: R, out: &mut impl Write, n: usize) -> io::Result<()> {
-        let mut line = String::new();
+    fn head_lines_reader<R: BufRead>(
+        mut reader: R,
+        out: &mut impl Write,
+        n: usize,
+    ) -> io::Result<()> {
+        let mut line = Vec::new();
         for _ in 0..n {
             line.clear();
-            let bytes_read = reader.read_line(&mut line)?;
+            let bytes_read = reader.read_until(b'\n', &mut line)?;
             if bytes_read == 0 {
                 break;
             }
-            out.write_all(line.as_bytes())?;
+            out.write_all(&line)?;
         }
         Ok(())
     }
@@ -196,7 +199,11 @@ impl HeadApplet {
         Self::head_bytes_reader(&mut reader, out, n)
     }
 
-    fn head_bytes_reader<R: Read>(reader: &mut R, out: &mut impl Write, n: usize) -> io::Result<()> {
+    fn head_bytes_reader<R: Read>(
+        reader: &mut R,
+        out: &mut impl Write,
+        n: usize,
+    ) -> io::Result<()> {
         let mut buf = vec![0u8; n.min(8192)];
         let mut remaining = n;
 

@@ -10,9 +10,12 @@ fn test_echo_basic() {
         .args(["run", "--quiet", "--", "echo", "hello", "world"])
         .output()
         .expect("failed to execute process");
-    
+
     assert!(output.status.success());
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello world");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "hello world"
+    );
 }
 
 #[test]
@@ -21,7 +24,7 @@ fn test_echo_no_newline() {
         .args(["run", "--quiet", "--", "echo", "-n", "test"])
         .output()
         .expect("failed to execute process");
-    
+
     assert!(output.status.success());
     assert_eq!(String::from_utf8_lossy(&output.stdout), "test");
 }
@@ -32,7 +35,7 @@ fn test_unknown_applet() {
         .args(["run", "--quiet", "--", "nonexistent"])
         .output()
         .expect("failed to execute process");
-    
+
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("applet not found"));
@@ -44,7 +47,7 @@ fn test_list_applets() {
         .args(["run", "--quiet", "--", "list"])
         .output()
         .expect("failed to execute process");
-    
+
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("cat"));
@@ -90,7 +93,7 @@ fn test_help_short_flag() {
         .args(["run", "--quiet", "--", "relax", "-h"])
         .output()
         .expect("failed to execute process");
-    
+
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Usage:"));
@@ -103,7 +106,7 @@ fn test_help_long_flag() {
         .args(["run", "--quiet", "--", "echo", "--help"])
         .output()
         .expect("failed to execute process");
-    
+
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Usage:"));
@@ -114,24 +117,24 @@ fn test_cat_file() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_cat");
     let _ = fs::remove_dir_all(&tmp_dir);
     fs::create_dir_all(&tmp_dir).unwrap();
-    
+
     let test_file = tmp_dir.join("test.txt");
     let mut f = fs::File::create(&test_file).unwrap();
     writeln!(f, "line one").unwrap();
     writeln!(f, "line two").unwrap();
     writeln!(f, "line three").unwrap();
-    
+
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "cat", test_file.to_str().unwrap()])
         .output()
         .expect("failed to execute process");
-    
+
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("line one"));
     assert!(stdout.contains("line two"));
     assert!(stdout.contains("line three"));
-    
+
     let _ = fs::remove_dir_all(&tmp_dir);
 }
 
@@ -140,24 +143,31 @@ fn test_cat_number_lines() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_cat_n");
     let _ = fs::remove_dir_all(&tmp_dir);
     fs::create_dir_all(&tmp_dir).unwrap();
-    
+
     let test_file = tmp_dir.join("test.txt");
     let mut f = fs::File::create(&test_file).unwrap();
     writeln!(f, "first").unwrap();
     writeln!(f, "second").unwrap();
-    
+
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "cat", "-n", test_file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "cat",
+            "-n",
+            test_file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
-    
+
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("1"));
     assert!(stdout.contains("2"));
     assert!(stdout.contains("first"));
     assert!(stdout.contains("second"));
-    
+
     let _ = fs::remove_dir_all(&tmp_dir);
 }
 
@@ -169,12 +179,12 @@ fn test_cat_stdin() {
         .stdout(std::process::Stdio::piped())
         .spawn()
         .expect("failed to spawn process");
-    
+
     {
         let stdin = child.stdin.as_mut().expect("failed to get stdin");
         stdin.write_all(b"hello from stdin\n").unwrap();
     }
-    
+
     let output = child.wait_with_output().expect("failed to wait");
     assert!(output.status.success());
     assert!(String::from_utf8_lossy(&output.stdout).contains("hello from stdin"));
@@ -185,22 +195,22 @@ fn test_ls_basic() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_ls");
     let _ = fs::remove_dir_all(&tmp_dir);
     fs::create_dir_all(&tmp_dir).unwrap();
-    
+
     fs::File::create(tmp_dir.join("file1.txt")).unwrap();
     fs::File::create(tmp_dir.join("file2.txt")).unwrap();
     fs::create_dir(tmp_dir.join("subdir")).unwrap();
-    
+
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "ls", tmp_dir.to_str().unwrap()])
         .output()
         .expect("failed to execute process");
-    
+
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("file1.txt"));
     assert!(stdout.contains("file2.txt"));
     assert!(stdout.contains("subdir"));
-    
+
     let _ = fs::remove_dir_all(&tmp_dir);
 }
 
@@ -209,19 +219,26 @@ fn test_ls_long_format() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_ls_l");
     let _ = fs::remove_dir_all(&tmp_dir);
     fs::create_dir_all(&tmp_dir).unwrap();
-    
+
     fs::File::create(tmp_dir.join("testfile.txt")).unwrap();
-    
+
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "ls", "-l", tmp_dir.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "ls",
+            "-l",
+            tmp_dir.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
-    
+
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("testfile.txt"));
     assert!(stdout.contains("-rw"));
-    
+
     let _ = fs::remove_dir_all(&tmp_dir);
 }
 
@@ -230,20 +247,27 @@ fn test_ls_all_flag() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_ls_a");
     let _ = fs::remove_dir_all(&tmp_dir);
     fs::create_dir_all(&tmp_dir).unwrap();
-    
+
     fs::File::create(tmp_dir.join(".hidden")).unwrap();
     fs::File::create(tmp_dir.join("visible")).unwrap();
-    
+
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "ls", "-a", tmp_dir.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "ls",
+            "-a",
+            tmp_dir.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
-    
+
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains(".hidden"));
     assert!(stdout.contains("visible"));
-    
+
     let _ = fs::remove_dir_all(&tmp_dir);
 }
 
@@ -253,7 +277,13 @@ fn test_install_creates_symlinks() {
     let _ = fs::remove_dir_all(&tmp_dir);
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "--install", tmp_dir.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "--install",
+            tmp_dir.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -261,11 +291,20 @@ fn test_install_creates_symlinks() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Created symlink"));
 
-    for applet in &["cat", "chgrp", "chmod", "chown", "cp", "cut", "df", "du", "echo", "expr", "find", "free", "grep", "head", "id", "kill", "ln", "ls", "mkdir", "mv", "ps", "readlink", "relax", "rm", "sort", "su", "tail", "test", "[", "touch", "tr", "uname", "uniq", "uptime", "wc", "whoami"] {
+    for applet in &[
+        "cat", "chgrp", "chmod", "chown", "cp", "cut", "df", "du", "echo", "expr", "find", "free",
+        "grep", "head", "id", "kill", "ln", "ls", "mkdir", "mv", "ps", "readlink", "relax", "rm",
+        "sort", "su", "tail", "test", "[", "touch", "tr", "uname", "uniq", "uptime", "wc",
+        "whoami",
+    ] {
         let link = tmp_dir.join(applet);
         assert!(link.exists(), "symlink for {} should exist", applet);
         let meta = fs::symlink_metadata(&link).unwrap();
-        assert!(meta.file_type().is_symlink(), "{} should be a symlink", applet);
+        assert!(
+            meta.file_type().is_symlink(),
+            "{} should be a symlink",
+            applet
+        );
     }
 
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -280,7 +319,13 @@ fn test_install_overwrites_existing() {
     fs::write(tmp_dir.join("echo"), "dummy").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "--install", tmp_dir.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "--install",
+            tmp_dir.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -294,11 +339,19 @@ fn test_install_overwrites_existing() {
 
 #[test]
 fn test_install_creates_directory() {
-    let tmp_dir = std::env::temp_dir().join("idlebox_test_install_newdir").join("sub");
+    let tmp_dir = std::env::temp_dir()
+        .join("idlebox_test_install_newdir")
+        .join("sub");
     let _ = fs::remove_dir_all(tmp_dir.parent().unwrap());
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "--install", tmp_dir.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "--install",
+            tmp_dir.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -315,7 +368,13 @@ fn test_install_symlink_invokes_applet() {
     let _ = fs::remove_dir_all(&tmp_dir);
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "--install", tmp_dir.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "--install",
+            tmp_dir.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
     assert!(output.status.success());
@@ -326,7 +385,10 @@ fn test_install_symlink_invokes_applet() {
         .expect("failed to execute via symlink");
 
     assert!(output.status.success());
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "hello from symlink");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "hello from symlink"
+    );
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -357,7 +419,14 @@ fn test_mkdir_parents() {
 
     let nested = tmp_dir.join("a").join("b").join("c");
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "mkdir", "-p", nested.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "mkdir",
+            "-p",
+            nested.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -374,7 +443,14 @@ fn test_mkdir_parents_no_error_existing() {
     fs::create_dir_all(&tmp_dir).unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "mkdir", "-p", tmp_dir.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "mkdir",
+            "-p",
+            tmp_dir.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -392,7 +468,14 @@ fn test_mkdir_multiple() {
     let d1 = tmp_dir.join("dir1");
     let d2 = tmp_dir.join("dir2");
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "mkdir", d1.to_str().unwrap(), d2.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "mkdir",
+            d1.to_str().unwrap(),
+            d2.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -465,7 +548,14 @@ fn test_rm_rf() {
 #[test]
 fn test_rm_force_nonexistent() {
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "rm", "-f", "/tmp/idlebox_nonexistent_file_xyz"])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "rm",
+            "-f",
+            "/tmp/idlebox_nonexistent_file_xyz",
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -503,7 +593,14 @@ fn test_cp_file() {
     fs::write(&src, "copy me").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "cp", src.to_str().unwrap(), dst.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "cp",
+            src.to_str().unwrap(),
+            dst.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -528,15 +625,29 @@ fn test_cp_recursive() {
 
     let dst_dir = tmp_dir.join("dst");
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "cp", "-r", src_dir.to_str().unwrap(), dst_dir.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "cp",
+            "-r",
+            src_dir.to_str().unwrap(),
+            dst_dir.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
     assert!(output.status.success());
     assert!(dst_dir.join("file1.txt").exists());
     assert!(dst_dir.join("sub").join("file2.txt").exists());
-    assert_eq!(fs::read_to_string(dst_dir.join("file1.txt")).unwrap(), "one");
-    assert_eq!(fs::read_to_string(dst_dir.join("sub").join("file2.txt")).unwrap(), "two");
+    assert_eq!(
+        fs::read_to_string(dst_dir.join("file1.txt")).unwrap(),
+        "one"
+    );
+    assert_eq!(
+        fs::read_to_string(dst_dir.join("sub").join("file2.txt")).unwrap(),
+        "two"
+    );
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -555,7 +666,15 @@ fn test_cp_multiple_to_dir() {
     fs::create_dir(&dest).unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "cp", f1.to_str().unwrap(), f2.to_str().unwrap(), dest.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "cp",
+            f1.to_str().unwrap(),
+            f2.to_str().unwrap(),
+            dest.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -577,7 +696,14 @@ fn test_mv_rename_file() {
     fs::write(&src, "rename me").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "mv", src.to_str().unwrap(), dst.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "mv",
+            src.to_str().unwrap(),
+            dst.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -603,7 +729,15 @@ fn test_mv_multiple_to_dir() {
     fs::create_dir(&dest).unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "mv", f1.to_str().unwrap(), f2.to_str().unwrap(), dest.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "mv",
+            f1.to_str().unwrap(),
+            f2.to_str().unwrap(),
+            dest.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -628,14 +762,24 @@ fn test_mv_directory() {
     fs::write(src.join("nested").join("file.txt"), "data").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "mv", src.to_str().unwrap(), dst.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "mv",
+            src.to_str().unwrap(),
+            dst.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
     assert!(output.status.success());
     assert!(!src.exists());
     assert!(dst.join("nested").join("file.txt").exists());
-    assert_eq!(fs::read_to_string(dst.join("nested").join("file.txt")).unwrap(), "data");
+    assert_eq!(
+        fs::read_to_string(dst.join("nested").join("file.txt")).unwrap(),
+        "data"
+    );
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -670,7 +814,10 @@ fn test_touch_multiple_files() {
     let f3 = tmp_dir.join("c.txt");
     let output = Command::new("cargo")
         .args([
-            "run", "--quiet", "--", "touch",
+            "run",
+            "--quiet",
+            "--",
+            "touch",
             f1.to_str().unwrap(),
             f2.to_str().unwrap(),
             f3.to_str().unwrap(),
@@ -694,6 +841,17 @@ fn test_touch_updates_existing_file() {
 
     let file = tmp_dir.join("existing.txt");
     fs::write(&file, "content").unwrap();
+    let old_time = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
+    fs::File::options()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_times(
+            fs::FileTimes::new()
+                .set_accessed(old_time)
+                .set_modified(old_time),
+        )
+        .unwrap();
 
     let output = Command::new("cargo")
         .args(["run", "--quiet", "--", "touch", file.to_str().unwrap()])
@@ -702,6 +860,7 @@ fn test_touch_updates_existing_file() {
 
     assert!(output.status.success());
     assert_eq!(fs::read_to_string(&file).unwrap(), "content");
+    assert!(fs::metadata(&file).unwrap().modified().unwrap() > old_time);
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -742,7 +901,15 @@ fn test_head_n_lines() {
     fs::write(&file, lines.join("\n")).unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "head", "-n", "5", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "head",
+            "-n",
+            "5",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -766,7 +933,15 @@ fn test_head_bytes() {
     fs::write(&file, "Hello, World! This is a test.").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "head", "-c", "5", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "head",
+            "-c",
+            "5",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -787,7 +962,9 @@ fn test_head_stdin() {
 
     {
         let stdin = child.stdin.as_mut().expect("failed to get stdin");
-        stdin.write_all(b"line1\nline2\nline3\nline4\nline5\n").unwrap();
+        stdin
+            .write_all(b"line1\nline2\nline3\nline4\nline5\n")
+            .unwrap();
     }
 
     let output = child.wait_with_output().expect("failed to wait");
@@ -834,7 +1011,15 @@ fn test_tail_n_lines() {
     fs::write(&file, lines.join("\n")).unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "tail", "-n", "3", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "tail",
+            "-n",
+            "3",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -859,7 +1044,9 @@ fn test_tail_stdin() {
 
     {
         let stdin = child.stdin.as_mut().expect("failed to get stdin");
-        stdin.write_all(b"line1\nline2\nline3\nline4\nline5\n").unwrap();
+        stdin
+            .write_all(b"line1\nline2\nline3\nline4\nline5\n")
+            .unwrap();
     }
 
     let output = child.wait_with_output().expect("failed to wait");
@@ -881,7 +1068,15 @@ fn test_tail_bytes() {
     fs::write(&file, "Hello, World!").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "tail", "-c", "6", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "tail",
+            "-c",
+            "6",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -901,7 +1096,14 @@ fn test_grep_basic() {
     fs::write(&file, "apple\nbanana\napple pie\ncherry\n").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "grep", "apple", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "grep",
+            "apple",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -925,7 +1127,15 @@ fn test_grep_ignore_case() {
     fs::write(&file, "Error\nerror\nERROR\nwarning\n").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "grep", "-i", "error", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "grep",
+            "-i",
+            "error",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -947,7 +1157,15 @@ fn test_grep_line_number() {
     fs::write(&file, "alpha\nbeta\ngamma\ndelta\n").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "grep", "-n", "gamma", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "grep",
+            "-n",
+            "gamma",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -968,7 +1186,15 @@ fn test_grep_invert_match() {
     fs::write(&file, "apple\nbanana\napple pie\ncherry\n").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "grep", "-v", "apple", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "grep",
+            "-v",
+            "apple",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -992,7 +1218,15 @@ fn test_grep_count() {
     fs::write(&file, "apple\nbanana\napple pie\ncherry\n").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "grep", "-c", "apple", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "grep",
+            "-c",
+            "apple",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1013,7 +1247,9 @@ fn test_grep_stdin() {
 
     {
         let stdin = child.stdin.as_mut().expect("failed to get stdin");
-        stdin.write_all(b"Info: ok\nError: fail\nWarning: maybe\nerror: again\n").unwrap();
+        stdin
+            .write_all(b"Info: ok\nError: fail\nWarning: maybe\nerror: again\n")
+            .unwrap();
     }
 
     let output = child.wait_with_output().expect("failed to wait");
@@ -1035,7 +1271,15 @@ fn test_grep_ignore_case_with_line_number() {
     fs::write(&file, "Error here\nno match\nERROR there\nerror again\n").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "grep", "-in", "error", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "grep",
+            "-in",
+            "error",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1060,7 +1304,14 @@ fn test_grep_no_match_returns_1() {
     fs::write(&file, "hello\nworld\n").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "grep", "zzz", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "grep",
+            "zzz",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1080,7 +1331,14 @@ fn test_chmod_octal_mode() {
     fs::write(&file, "hello").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "chmod", "755", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "chmod",
+            "755",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1105,13 +1363,27 @@ fn test_chmod_multiple_files() {
     fs::write(&f2, "two").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "chmod", "0644", f1.to_str().unwrap(), f2.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "chmod",
+            "0644",
+            f1.to_str().unwrap(),
+            f2.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
     assert!(output.status.success());
-    assert_eq!(fs::metadata(&f1).unwrap().permissions().mode() & 0o777, 0o644);
-    assert_eq!(fs::metadata(&f2).unwrap().permissions().mode() & 0o777, 0o644);
+    assert_eq!(
+        fs::metadata(&f1).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
+    assert_eq!(
+        fs::metadata(&f2).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -1133,14 +1405,31 @@ fn test_chmod_recursive() {
     fs::write(&f3, "c").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "chmod", "-R", "700", tmp_dir.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "chmod",
+            "-R",
+            "700",
+            tmp_dir.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
     assert!(output.status.success());
-    assert_eq!(fs::metadata(&f1).unwrap().permissions().mode() & 0o777, 0o700);
-    assert_eq!(fs::metadata(&f2).unwrap().permissions().mode() & 0o777, 0o700);
-    assert_eq!(fs::metadata(&f3).unwrap().permissions().mode() & 0o777, 0o700);
+    assert_eq!(
+        fs::metadata(&f1).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(&f2).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(&f3).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -1202,7 +1491,14 @@ fn test_du_summarize() {
     fs::write(tmp_dir.join("sub").join("file2.txt"), "more content here").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "du", "-s", tmp_dir.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "du",
+            "-s",
+            tmp_dir.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1224,7 +1520,15 @@ fn test_du_human_readable() {
     fs::write(tmp_dir.join("file1.txt"), "hello world").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "du", "-h", "-s", tmp_dir.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "du",
+            "-h",
+            "-s",
+            tmp_dir.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1247,16 +1551,32 @@ fn test_du_max_depth() {
     fs::write(tmp_dir.join("a").join("b").join("file3.txt"), "data3").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "du", "-h", "-d", "1", tmp_dir.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "du",
+            "-h",
+            "-d",
+            "1",
+            tmp_dir.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     let lines: Vec<&str> = stdout.trim().lines().collect();
-    assert!(lines.len() >= 2, "expected at least 2 lines (subdir + total), got: {:?}", lines);
+    assert!(
+        lines.len() >= 2,
+        "expected at least 2 lines (subdir + total), got: {:?}",
+        lines
+    );
     let last_line = lines[lines.len() - 1];
-    assert!(last_line.contains(tmp_dir.to_str().unwrap()), "last line should be the total for root dir");
+    assert!(
+        last_line.contains(tmp_dir.to_str().unwrap()),
+        "last line should be the total for root dir"
+    );
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -1429,7 +1749,11 @@ fn test_uptime_load_average_format() {
     assert_eq!(loads.len(), 3);
     for load in &loads {
         let trimmed = load.trim();
-        assert!(trimmed.contains('.'), "load value should be decimal: {}", trimmed);
+        assert!(
+            trimmed.contains('.'),
+            "load value should be decimal: {}",
+            trimmed
+        );
     }
 }
 
@@ -1444,7 +1768,15 @@ fn test_ln_symbolic_link() {
     let link = tmp_dir.join("link.txt");
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "ln", "-s", src.to_str().unwrap(), link.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "ln",
+            "-s",
+            src.to_str().unwrap(),
+            link.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1467,7 +1799,14 @@ fn test_ln_hard_link() {
     let link = tmp_dir.join("link.txt");
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "ln", src.to_str().unwrap(), link.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "ln",
+            src.to_str().unwrap(),
+            link.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1495,7 +1834,15 @@ fn test_ln_force_overwrite() {
     fs::write(&link, "old content").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "ln", "-sf", src.to_str().unwrap(), link.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "ln",
+            "-sf",
+            src.to_str().unwrap(),
+            link.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1520,16 +1867,32 @@ fn test_ln_multiple_to_dir() {
     fs::create_dir(&dir).unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "ln", "-s",
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "ln",
+            "-s",
             f1.to_str().unwrap(),
             f2.to_str().unwrap(),
-            dir.to_str().unwrap()])
+            dir.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
     assert!(output.status.success());
-    assert!(dir.join("f1.txt").symlink_metadata().unwrap().file_type().is_symlink());
-    assert!(dir.join("f2.txt").symlink_metadata().unwrap().file_type().is_symlink());
+    assert!(dir
+        .join("f1.txt")
+        .symlink_metadata()
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert!(dir
+        .join("f2.txt")
+        .symlink_metadata()
+        .unwrap()
+        .file_type()
+        .is_symlink());
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -1571,7 +1934,14 @@ fn test_readlink_canonicalize() {
     std::os::unix::fs::symlink(&src, &link).unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "readlink", "-f", link.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "readlink",
+            "-f",
+            link.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1596,7 +1966,14 @@ fn test_readlink_no_newline() {
     std::os::unix::fs::symlink(&src, &link).unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "readlink", "-n", link.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "readlink",
+            "-n",
+            link.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1617,7 +1994,10 @@ fn test_uname_sysname() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    assert!(!stdout.is_empty(), "uname -s should output a non-empty sysname");
+    assert!(
+        !stdout.is_empty(),
+        "uname -s should output a non-empty sysname"
+    );
 }
 
 #[test]
@@ -1630,8 +2010,12 @@ fn test_uname_all() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let parts: Vec<&str> = stdout.trim().split_whitespace().collect();
-    assert!(parts.len() >= 3, "uname -a should output at least 3 fields, got: {:?}", parts);
+    let parts: Vec<&str> = stdout.split_whitespace().collect();
+    assert!(
+        parts.len() >= 3,
+        "uname -a should output at least 3 fields, got: {:?}",
+        parts
+    );
 }
 
 #[test]
@@ -1644,7 +2028,10 @@ fn test_uname_default_is_sysname() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    assert!(!stdout.is_empty(), "uname should output a non-empty sysname");
+    assert!(
+        !stdout.is_empty(),
+        "uname should output a non-empty sysname"
+    );
 }
 
 #[test]
@@ -1670,8 +2057,8 @@ fn test_uname_all() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let parts: Vec<&str> = stdout.trim().split_whitespace().collect();
-    assert!(parts.len() >= 1, "uname -a should output at least 1 field");
+    let parts: Vec<&str> = stdout.split_whitespace().collect();
+    assert!(!parts.is_empty(), "uname -a should output at least 1 field");
 }
 
 #[test]
@@ -1713,7 +2100,14 @@ fn test_test_directory() {
     fs::create_dir_all(&tmp_dir).unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "test", "-d", tmp_dir.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "test",
+            "-d",
+            tmp_dir.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1775,7 +2169,9 @@ fn test_test_numeric_comparison() {
 #[test]
 fn test_test_logical_and() {
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "test", "1", "-eq", "1", "-a", "2", "-eq", "2"])
+        .args([
+            "run", "--quiet", "--", "test", "1", "-eq", "1", "-a", "2", "-eq", "2",
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1785,7 +2181,9 @@ fn test_test_logical_and() {
 #[test]
 fn test_test_logical_or() {
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "test", "1", "-eq", "2", "-o", "2", "-eq", "2"])
+        .args([
+            "run", "--quiet", "--", "test", "1", "-eq", "2", "-o", "2", "-eq", "2",
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1963,7 +2361,15 @@ fn test_find_name_pattern() {
     fs::write(tmp_dir.join("file3.rs"), "more code").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "find", tmp_dir.to_str().unwrap(), "-name", "*.rs"])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "find",
+            tmp_dir.to_str().unwrap(),
+            "-name",
+            "*.rs",
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -1987,7 +2393,17 @@ fn test_find_type_directory() {
     fs::write(tmp_dir.join("file.txt"), "content").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "find", tmp_dir.to_str().unwrap(), "-type", "d", "-maxdepth", "1"])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "find",
+            tmp_dir.to_str().unwrap(),
+            "-type",
+            "d",
+            "-maxdepth",
+            "1",
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -2012,7 +2428,17 @@ fn test_find_maxdepth() {
     fs::write(tmp_dir.join("a").join("b").join("file3.txt"), "content").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "find", tmp_dir.to_str().unwrap(), "-name", "*.txt", "-maxdepth", "1"])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "find",
+            tmp_dir.to_str().unwrap(),
+            "-name",
+            "*.txt",
+            "-maxdepth",
+            "1",
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -2036,7 +2462,14 @@ fn test_find_empty() {
     fs::create_dir(tmp_dir.join("emptydir")).unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "find", tmp_dir.to_str().unwrap(), "-empty"])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "find",
+            tmp_dir.to_str().unwrap(),
+            "-empty",
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -2072,7 +2505,15 @@ fn test_find_type_file() {
     fs::create_dir(tmp_dir.join("subdir")).unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "find", tmp_dir.to_str().unwrap(), "-type", "f"])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "find",
+            tmp_dir.to_str().unwrap(),
+            "-type",
+            "f",
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -2098,7 +2539,15 @@ fn test_find_symlink() {
     std::os::unix::fs::symlink(&file, &link).unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "find", tmp_dir.to_str().unwrap(), "-type", "l"])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "find",
+            tmp_dir.to_str().unwrap(),
+            "-type",
+            "l",
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -2183,7 +2632,15 @@ fn test_wc_multiple_files() {
     fs::write(&f2, "three\nfour\nfive\n").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "wc", "-l", f1.to_str().unwrap(), f2.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "wc",
+            "-l",
+            f1.to_str().unwrap(),
+            f2.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -2227,7 +2684,15 @@ fn test_sort_numeric_reverse() {
     fs::write(&file, "10\n2\n30\n1\n").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "sort", "-n", "-r", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "sort",
+            "-n",
+            "-r",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -2364,7 +2829,15 @@ fn test_uniq_ignore_case() {
     fs::write(&file, "Hello\nhello\nHELLO\nWorld\n").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "uniq", "-i", "-c", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "uniq",
+            "-i",
+            "-c",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -2388,7 +2861,17 @@ fn test_cut_fields_csv() {
     fs::write(&file, "name,age,city\nAlice,30,NYC\nBob,25,LA\n").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "cut", "-d", ",", "-f", "1,2", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "cut",
+            "-d",
+            ",",
+            "-f",
+            "1,2",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -2412,7 +2895,15 @@ fn test_cut_characters() {
     fs::write(&file, "Hello World\nFoo Bar\n").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "cut", "-c", "1-5", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "cut",
+            "-c",
+            "1-5",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -2513,7 +3004,10 @@ fn test_whoami_nonempty() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    assert!(!stdout.is_empty(), "whoami should output a non-empty username");
+    assert!(
+        !stdout.is_empty(),
+        "whoami should output a non-empty username"
+    );
 }
 
 #[test]
@@ -2531,8 +3025,12 @@ fn test_whoami_matches_id_un() {
 
     assert!(whoami_output.status.success());
     assert!(id_output.status.success());
-    let whoami_name = String::from_utf8_lossy(&whoami_output.stdout).trim().to_string();
-    let id_name = String::from_utf8_lossy(&id_output.stdout).trim().to_string();
+    let whoami_name = String::from_utf8_lossy(&whoami_output.stdout)
+        .trim()
+        .to_string();
+    let id_name = String::from_utf8_lossy(&id_output.stdout)
+        .trim()
+        .to_string();
     assert_eq!(whoami_name, id_name);
 }
 
@@ -2561,7 +3059,11 @@ fn test_id_u_flag() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    assert!(stdout.parse::<u32>().is_ok(), "id -u should output a numeric UID, got: {}", stdout);
+    assert!(
+        stdout.parse::<u32>().is_ok(),
+        "id -u should output a numeric UID, got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -2574,8 +3076,14 @@ fn test_id_u_name_flag() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    assert!(!stdout.is_empty(), "id -u -n should output a non-empty username");
-    assert!(stdout.parse::<u32>().is_err(), "id -u -n should output a name, not a number");
+    assert!(
+        !stdout.is_empty(),
+        "id -u -n should output a non-empty username"
+    );
+    assert!(
+        stdout.parse::<u32>().is_err(),
+        "id -u -n should output a name, not a number"
+    );
 }
 
 #[test]
@@ -2588,7 +3096,11 @@ fn test_id_g_flag() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    assert!(stdout.parse::<u32>().is_ok(), "id -g should output a numeric GID, got: {}", stdout);
+    assert!(
+        stdout.parse::<u32>().is_ok(),
+        "id -g should output a numeric GID, got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -2601,7 +3113,10 @@ fn test_id_g_name_flag() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    assert!(!stdout.is_empty(), "id -g -n should output a non-empty group name");
+    assert!(
+        !stdout.is_empty(),
+        "id -g -n should output a non-empty group name"
+    );
 }
 
 #[test]
@@ -2617,7 +3132,11 @@ fn test_id_g_supplementary_flag() {
     if !stdout.is_empty() {
         let gids: Vec<&str> = stdout.split_whitespace().collect();
         for gid in &gids {
-            assert!(gid.parse::<u32>().is_ok(), "each group should be numeric, got: {}", gid);
+            assert!(
+                gid.parse::<u32>().is_ok(),
+                "each group should be numeric, got: {}",
+                gid
+            );
         }
     }
 }
@@ -2646,7 +3165,10 @@ fn test_id_combined_flags() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
     assert!(!stdout.is_empty(), "id -un should output a username");
-    assert!(stdout.parse::<u32>().is_err(), "id -un should output a name, not a number");
+    assert!(
+        stdout.parse::<u32>().is_err(),
+        "id -un should output a name, not a number"
+    );
 }
 
 #[test]
@@ -2673,7 +3195,14 @@ fn test_chown_invalid_user() {
     fs::write(&file, "hello").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "chown", "nonexistent_user_xyz_12345", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "chown",
+            "nonexistent_user_xyz_12345",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -2688,7 +3217,14 @@ fn test_chown_invalid_user() {
 #[cfg(unix)]
 fn test_chown_no_file() {
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "chown", "root", "/tmp/idlebox_nonexistent_file_xyz"])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "chown",
+            "root",
+            "/tmp/idlebox_nonexistent_file_xyz",
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -2721,7 +3257,14 @@ fn test_chgrp_invalid_group() {
     fs::write(&file, "hello").unwrap();
 
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "chgrp", "nonexistent_group_xyz_12345", file.to_str().unwrap()])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "chgrp",
+            "nonexistent_group_xyz_12345",
+            file.to_str().unwrap(),
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -2736,7 +3279,14 @@ fn test_chgrp_invalid_group() {
 #[cfg(unix)]
 fn test_chgrp_no_file() {
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "chgrp", "0", "/tmp/idlebox_nonexistent_file_xyz"])
+        .args([
+            "run",
+            "--quiet",
+            "--",
+            "chgrp",
+            "0",
+            "/tmp/idlebox_nonexistent_file_xyz",
+        ])
         .output()
         .expect("failed to execute process");
 
@@ -2786,4 +3336,349 @@ fn test_su_help() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Usage:"));
     assert!(stdout.contains("su"));
+}
+
+fn idlebox_command() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_idlebox"))
+}
+
+#[test]
+fn test_cat_preserves_exact_bytes() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_cat_exact_bytes");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    let file = tmp_dir.join("input.bin");
+    let expected = [0xff, 0x00, b'a'];
+    fs::write(&file, expected).unwrap();
+
+    let output = idlebox_command()
+        .args(["cat", file.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(output.stdout, expected);
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_head_and_tail_preserve_binary_lines() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_binary_lines");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    let file = tmp_dir.join("input.bin");
+    fs::write(&file, [0xff, b'\n', 0xfe]).unwrap();
+
+    let head = idlebox_command()
+        .args(["head", "-n", "1", file.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let tail = idlebox_command()
+        .args(["tail", "-n", "1", file.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(head.status.success());
+    assert_eq!(head.stdout, [0xff, b'\n']);
+    assert!(tail.status.success());
+    assert_eq!(tail.stdout, [0xfe]);
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_tail_zero_lines_is_empty() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tail_zero");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    let file = tmp_dir.join("input.txt");
+    fs::write(&file, "line\n").unwrap();
+
+    let output = idlebox_command()
+        .args(["tail", "-n", "0", file.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_expr_unicode_length_and_substring() {
+    let length = idlebox_command()
+        .args(["expr", "length", "é😊"])
+        .output()
+        .unwrap();
+    let substring = idlebox_command()
+        .args(["expr", "substr", "é😊", "2", "1"])
+        .output()
+        .unwrap();
+
+    assert!(length.status.success());
+    assert_eq!(length.stdout, b"2\n");
+    assert!(substring.status.success());
+    assert_eq!(String::from_utf8(substring.stdout).unwrap(), "😊\n");
+}
+
+#[test]
+fn test_expr_overflow_is_reported() {
+    let output = idlebox_command()
+        .args(["expr", &i64::MAX.to_string(), "+", "1"])
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("syntax error"));
+}
+
+#[test]
+fn test_tr_rejects_empty_translation_set() {
+    let output = idlebox_command().args(["tr", "a", ""]).output().unwrap();
+
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("must not be empty"));
+}
+
+#[test]
+fn test_cut_preserves_line_without_delimiter() {
+    let mut child = idlebox_command()
+        .args(["cut", "-d", ",", "-f", "2"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(b"plain-line\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"plain-line\n");
+}
+
+#[test]
+fn test_applet_errors_are_printed() {
+    let output = idlebox_command()
+        .args(["cat", "--definitely-invalid"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("invalid option"));
+}
+
+#[test]
+#[cfg(unix)]
+fn test_short_h_remains_test_symlink_operator() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_test_h");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    let target = tmp_dir.join("target");
+    let link = tmp_dir.join("link");
+    fs::write(&target, "content").unwrap();
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+
+    let output = idlebox_command()
+        .args(["test", "-h", link.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(output.stdout.is_empty());
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_cp_recursive_preserves_symlink() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_cp_symlink_tree");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    let source = tmp_dir.join("source");
+    let outside = tmp_dir.join("outside");
+    let destination = tmp_dir.join("destination");
+    fs::create_dir_all(&source).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("file"), "outside").unwrap();
+    std::os::unix::fs::symlink(&outside, source.join("linked-outside")).unwrap();
+
+    let output = idlebox_command()
+        .args([
+            "cp",
+            "-R",
+            source.to_str().unwrap(),
+            destination.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(fs::symlink_metadata(destination.join("linked-outside"))
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_cp_rejects_copy_into_itself() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_cp_self");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    let source = tmp_dir.join("source");
+    let destination = source.join("child");
+    fs::create_dir_all(&source).unwrap();
+    fs::write(source.join("file"), "content").unwrap();
+
+    let output = idlebox_command()
+        .args([
+            "cp",
+            "-R",
+            source.to_str().unwrap(),
+            destination.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(!destination.exists());
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_recursive_chmod_does_not_follow_symlink() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_chmod_symlink_tree");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    let tree = tmp_dir.join("tree");
+    let outside = tmp_dir.join("outside");
+    fs::create_dir_all(&tree).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    let outside_file = outside.join("file");
+    fs::write(&outside_file, "content").unwrap();
+    fs::set_permissions(&outside_file, fs::Permissions::from_mode(0o640)).unwrap();
+    std::os::unix::fs::symlink(&outside, tree.join("linked-outside")).unwrap();
+
+    let output = idlebox_command()
+        .args(["chmod", "-R", "700", tree.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(fs::metadata(&outside_file).unwrap().mode() & 0o777, 0o640);
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_du_does_not_follow_directory_symlink() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_du_symlink_tree");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    let tree = tmp_dir.join("tree");
+    let outside = tmp_dir.join("outside");
+    fs::create_dir_all(&tree).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("file"), "content").unwrap();
+    std::os::unix::fs::symlink(&outside, tree.join("linked-outside")).unwrap();
+
+    let output = idlebox_command()
+        .args(["du", tree.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("linked-outside"));
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_rm_symlink_to_directory_without_recursive_flag() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_rm_directory_symlink");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    let outside = tmp_dir.join("outside");
+    let link = tmp_dir.join("link");
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(outside.join("file"), "content").unwrap();
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+
+    let output = idlebox_command()
+        .args(["rm", link.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(outside.join("file").exists());
+    assert!(link.symlink_metadata().is_err());
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_ls_lists_broken_symlink() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_ls_broken_symlink");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    let link = tmp_dir.join("broken-link");
+    std::os::unix::fs::symlink("missing-target", &link).unwrap();
+
+    let output = idlebox_command()
+        .args(["ls", "-l", link.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("broken-link -> missing-target"));
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_id_groups_match_system_id() {
+    use std::collections::BTreeSet;
+
+    let actual = idlebox_command().args(["id", "-G"]).output().unwrap();
+    let expected = Command::new("id").arg("-G").output().unwrap();
+    let parse = |bytes: &[u8]| {
+        String::from_utf8_lossy(bytes)
+            .split_whitespace()
+            .map(|value| value.parse::<u32>().unwrap())
+            .collect::<BTreeSet<_>>()
+    };
+
+    assert!(actual.status.success());
+    assert!(expected.status.success());
+    assert_eq!(parse(&actual.stdout), parse(&expected.stdout));
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn test_kill_uses_macos_signal_numbers() {
+    let output = idlebox_command().args(["kill", "-l"]).output().unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(stdout.contains("10) SIGBUS"));
+    assert!(stdout.contains("30) SIGUSR1"));
+}
+
+#[test]
+#[cfg(windows)]
+fn test_df_does_not_modify_probe_file() {
+    let tmp_dir =
+        std::env::temp_dir().join(format!("idlebox_test_df_probe_{}", std::process::id()));
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    let probe = tmp_dir.join(".idlebox_df_probe");
+    fs::write(&probe, "keep-me").unwrap();
+
+    let output = idlebox_command()
+        .args(["df", tmp_dir.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(fs::read_to_string(&probe).unwrap(), "keep-me");
+    let _ = fs::remove_dir_all(&tmp_dir);
 }
