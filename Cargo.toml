@@ -14,6 +14,9 @@ categories = ["command-line-utilities", "os"]
 crc32fast = "1.5.0"
 flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
 
+[profile.dev]
+opt-level = 1
+
 [profile.release]
 opt-level = "z"
 lto = true
@@ -28,4 +31,5 @@ opt-level = "z"
 codegen-units = 1
 
 [dev-dependencies]
+blake3 = "1.8.6"
 tempfile = "3.27.0"

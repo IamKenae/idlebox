@@ -221,21 +221,15 @@ impl HashImpl for Blake3Hasher {
 
     fn update(&mut self, mut input: &[u8]) {
         while !input.is_empty() {
-            let chunk_bytes_processed = self.chunk_state.blocks_compressed as usize * 64
-                + self.chunk_state.block_len as usize;
-            if chunk_bytes_processed == 1024 {
+            let chunk_bytes_processed = self.chunk_state.blocks_compressed as usize * 64 + self.chunk_state.block_len as usize;
+            if chunk_bytes_processed == CHUNKS_PER_BLOCK {
                 let cv = self.chunk_state.output().chaining_value();
                 self.push_cv_at_height(cv, 0);
-                self.chunk_state = ChunkState::new(
-                    IV,
-                    self.chunk_state.chunk_counter + 1,
-                    self.chunk_state.flags,
-                );
+                self.chunk_state = ChunkState::new(IV, self.chunk_state.chunk_counter + 1, self.chunk_state.flags);
             }
 
-            let chunk_bytes_processed = self.chunk_state.blocks_compressed as usize * 64
-                + self.chunk_state.block_len as usize;
-            let take = (1024 - chunk_bytes_processed).min(input.len());
+            let chunk_bytes_processed = self.chunk_state.blocks_compressed as usize * 64 + self.chunk_state.block_len as usize;
+            let take = (CHUNKS_PER_BLOCK - chunk_bytes_processed).min(input.len());
             self.chunk_state.update(&input[..take]);
             input = &input[take..];
         }
@@ -305,6 +299,14 @@ impl Blake3Hasher {
     }
 }
 
+// Number of bytes per chunk
+const CHUNKS_PER_BLOCK: usize = 1024;
+// Max tree height for parallel processing
+const TREE_HEIGHT: u8 = 10;
+
+// We use `read_exact_at` for lock-free parallel I/O. Since this is an extension 
+// trait in std::os::unix, this parallel path is only enabled on Unix systems.
+// On Windows, it gracefully falls back to the standard sequential processing in hash_file.
 #[cfg(unix)]
 fn hash_file_parallel(f: File, size: u64) -> io::Result<String> {
     let chunk_size = 1024 * 1024;
@@ -334,7 +336,7 @@ fn hash_file_parallel(f: File, size: u64) -> io::Result<String> {
                     f.read_exact_at(&mut buf, (idx as u64) * chunk_size)?;
 
                     let mut local_hasher = Blake3Hasher::new();
-                    local_hasher.chunk_state.chunk_counter = (idx as u64) * 1024;
+                    local_hasher.chunk_state.chunk_counter = (idx as u64) * (CHUNKS_PER_BLOCK as u64);
                     local_hasher.update(&buf);
 
                     let mut output = local_hasher.chunk_state.output();
@@ -361,10 +363,10 @@ fn hash_file_parallel(f: File, size: u64) -> io::Result<String> {
 
     let mut main_hasher = Blake3Hasher::new();
     for cv in all_cvs {
-        main_hasher.push_cv_at_height(cv, 10);
+        main_hasher.push_cv_at_height(cv, TREE_HEIGHT);
     }
 
-    main_hasher.chunk_state.chunk_counter = (num_full_blocks as u64) * 1024;
+    main_hasher.chunk_state.chunk_counter = (num_full_blocks as u64) * (CHUNKS_PER_BLOCK as u64);
 
     let rem = size % chunk_size;
     if rem > 0 {
