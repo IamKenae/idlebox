@@ -686,6 +686,11 @@ impl TreeApplet {
         }
 
         match Self::read_children(root, opts, st) {
+            // An empty directory carries no `contents` at all, the way
+            // upstream's `json_listdir()` leaves the key off rather than
+            // writing an empty array. A consumer can then tell "nothing in it"
+            // from "not a directory" by the type alone.
+            Ok(children) if children.is_empty() => write!(out, "}}")?,
             Ok(children) => {
                 writeln!(out, ",\"contents\":[")?;
                 Self::walk_json(&children, 4, 1, opts, st, out)?;
@@ -722,6 +727,11 @@ impl TreeApplet {
                 Some(Err(_)) => {
                     writeln!(out, ",\"error\":\"opening dir\"}}{}", trailing)?;
                     st.failed = true;
+                }
+                // A directory with nothing in it is written the same way one
+                // the depth limit stopped at is: no `contents` key, as upstream.
+                Some(Ok(grandchildren)) if grandchildren.is_empty() => {
+                    writeln!(out, "}}{}", trailing)?
                 }
                 Some(Ok(grandchildren)) => {
                     writeln!(out, ",\"contents\":[")?;
@@ -1088,8 +1098,16 @@ impl TreeApplet {
 
             let path = item.path();
             // The scratch file `-o` is writing into is not part of the tree.
-            if opts.staged_output.as_deref() == Some(path.as_path()) {
-                continue;
+            // Comparing the two paths as text misses it: `read_dir(".")` hands
+            // back `./x` while the staged path is a bare `x`, and `Path`'s
+            // equality keeps that leading `CurDir`. The name is a cheap sieve —
+            // it carries the pid — and the inode settles it.
+            if let Some(staged) = opts.staged_output.as_deref() {
+                if staged.file_name() == Some(name.as_os_str())
+                    && same_file(&path, staged, FollowSymlinks::No).unwrap_or(false)
+                {
+                    continue;
+                }
             }
 
             let meta = match fs::symlink_metadata(&path) {
@@ -1281,11 +1299,18 @@ impl TreeApplet {
         }
         let mut buf = Vec::new();
         Self::write_meta(meta, opts, &mut buf)?;
-        for &byte in &buf {
-            match byte {
-                b' ' => out.write_all(b"&nbsp;")?,
-                other => write_xml_escaped(out, &[other])?,
-            }
+        // Split on the spaces and escape each run whole: escaping byte by byte
+        // would hand the escaper half a multi-byte character at a time and it
+        // would rightly call each half invalid. `split` yields one more piece
+        // than there are spaces, so the padding still comes out one `&nbsp;`
+        // per space.
+        let mut runs = buf.split(|&byte| byte == b' ');
+        if let Some(first) = runs.next() {
+            write_xml_escaped(out, first)?;
+        }
+        for run in runs {
+            out.write_all(b"&nbsp;")?;
+            write_xml_escaped(out, run)?;
         }
         Ok(())
     }
@@ -1723,9 +1748,10 @@ fn matches_any(patterns: &[String], name: &OsStr) -> bool {
 
 /// Matches one `-I`/`-P` pattern against a single name, byte for byte.
 ///
-/// Deliberately richer than the `glob_match` in `find.rs`: `tree` patterns are
-/// documented to take `|` alternation and `[...]` classes and scripts pass both,
-/// so the two stay separate copies rather than growing a shared layer.
+/// Deliberately richer in *syntax* than the `glob_match` in `find.rs`: `tree`
+/// patterns are documented to take `|` alternation and `[...]` classes and
+/// scripts pass both, so the two stay separate copies rather than growing a
+/// shared layer. The scan itself is the same one `find.rs` uses.
 ///
 /// Unlike upstream's `patmatch()`, the alternation is split outside brackets
 /// only — upstream's `strchr` cuts `[a|b]` in half, hits its own syntax error
@@ -1760,34 +1786,74 @@ fn split_alternatives(pattern: &[u8]) -> Vec<&[u8]> {
     parts
 }
 
+/// One alternative against one name.
+///
+/// A greedy scan with a single backtrack point, the way `glob_match_inner` in
+/// `find.rs` does it. Trying every split for every `*` instead — which is what
+/// the obvious recursive spelling amounts to — is exponential: a name of 42
+/// ordinary characters against `*?*?...*Q` took half a minute before this was
+/// written, and the recursion went one frame deep per matched byte.
+///
+/// Keeping only the most recent `*` is enough because every other pattern
+/// element consumes exactly one byte of the name, so letting an earlier `*`
+/// swallow more is indistinguishable from letting the last one swallow more.
 fn match_here(pattern: &[u8], text: &[u8]) -> bool {
-    let Some(&first) = pattern.first() else {
-        return text.is_empty();
-    };
+    let (mut p, mut t) = (0, 0);
+    // Where to resume when a `*` turns out to have swallowed too little:
+    // the pattern index just past it, and the name index to retry from.
+    let mut star: Option<(usize, usize)> = None;
 
-    match first {
-        b'*' => {
-            let rest = &pattern[1..];
-            (0..=text.len()).any(|split| match_here(rest, &text[split..]))
+    while t < text.len() {
+        if pattern.get(p) == Some(&b'*') {
+            p += 1;
+            star = Some((p, t));
+            continue;
         }
-        b'?' => !text.is_empty() && match_here(&pattern[1..], &text[1..]),
-        b'[' => match match_class(&pattern[1..], text.first().copied()) {
-            Some((true, consumed)) => match_here(&pattern[1 + consumed..], &text[1..]),
-            Some((false, _)) => false,
+        match match_one(pattern, p, text[t]) {
+            Some(width) => {
+                p += width;
+                t += 1;
+            }
+            None => match star {
+                Some((resume, from)) => {
+                    p = resume;
+                    t = from + 1;
+                    star = Some((resume, t));
+                }
+                None => return false,
+            },
+        }
+    }
+
+    // Whatever is left of the pattern has to be able to match nothing.
+    while pattern.get(p) == Some(&b'*') {
+        p += 1;
+    }
+    p == pattern.len()
+}
+
+/// Matches the pattern element at `p` against one byte, returning how many
+/// pattern bytes that element spans. Returning the *whole* element keeps `p` on
+/// an element boundary, so the `*` test above can never mistake a byte inside a
+/// `[...]` class for a wildcard.
+fn match_one(pattern: &[u8], p: usize, byte: u8) -> Option<usize> {
+    match *pattern.get(p)? {
+        b'?' => Some(1),
+        b'[' => match match_class(&pattern[p + 1..], byte) {
+            Some((true, consumed)) => Some(1 + consumed),
+            Some((false, _)) => None,
             // A class that is never closed is a literal `[`.
-            None => !text.is_empty() && text[0] == b'[' && match_here(&pattern[1..], &text[1..]),
+            None => (byte == b'[').then_some(1),
         },
-        b'\\' if pattern.len() > 1 => {
-            !text.is_empty() && text[0] == pattern[1] && match_here(&pattern[2..], &text[1..])
-        }
-        literal => !text.is_empty() && text[0] == literal && match_here(&pattern[1..], &text[1..]),
+        b'\\' if p + 1 < pattern.len() => (byte == pattern[p + 1]).then_some(2),
+        literal => (byte == literal).then_some(1),
     }
 }
 
 /// Scans a `[...]` class starting just past the `[`. Returns whether
 /// `candidate` falls inside it and how many pattern bytes the class spans
 /// (including the closing `]`), or `None` if it is never closed.
-fn match_class(pattern: &[u8], candidate: Option<u8>) -> Option<(bool, usize)> {
+fn match_class(pattern: &[u8], candidate: u8) -> Option<(bool, usize)> {
     let mut idx = 0;
     let negated = pattern.first() == Some(&b'^');
     if negated {
@@ -1800,8 +1866,7 @@ fn match_class(pattern: &[u8], candidate: Option<u8>) -> Option<(bool, usize)> {
 
     while idx < pattern.len() {
         if pattern[idx] == b']' && !leading {
-            let inside = if negated { !matched } else { matched };
-            return Some((candidate.is_some() && inside, idx + 1));
+            return Some((if negated { !matched } else { matched }, idx + 1));
         }
         leading = false;
 
@@ -1819,12 +1884,10 @@ fn match_class(pattern: &[u8], candidate: Option<u8>) -> Option<(bool, usize)> {
             }
             let high = pattern[idx];
             idx += 1;
-            if let Some(byte) = candidate {
-                if byte >= low && byte <= high {
-                    matched = true;
-                }
+            if candidate >= low && candidate <= high {
+                matched = true;
             }
-        } else if candidate == Some(low) {
+        } else if candidate == low {
             matched = true;
         }
     }
@@ -1854,25 +1917,62 @@ fn write_json_escaped(out: &mut dyn Write, text: &[u8]) -> io::Result<()> {
 
 /// The five XML entities, also used for HTML.
 ///
-/// C0 control characters have no legal spelling in XML 1.0 — not even as a
-/// numeric reference — so they become `?` rather than making the document
-/// unparseable. Upstream passes them through and produces XML no parser will
-/// read; `?` is the substitution its own `-q` flag uses for the same bytes.
+/// Anything XML 1.0 has no spelling for — not even as a numeric reference —
+/// becomes `?` rather than making the document unparseable: the C0 controls
+/// apart from tab, newline and carriage return, the two noncharacters at the
+/// end of each plane, and any byte that is not valid UTF-8 in a document that
+/// declares `encoding="UTF-8"`. Upstream passes all three through and produces
+/// XML no parser will read; `?` is the substitution its own `-q` flag uses for
+/// the same bytes.
+///
+/// `-J` deliberately does *not* do this: JSON can spell a control character, and
+/// passing the raw bytes through keeps two differently-named files distinct.
 fn write_xml_escaped(out: &mut dyn Write, text: &[u8]) -> io::Result<()> {
-    for &byte in text {
-        match byte {
-            b'&' => out.write_all(b"&amp;")?,
-            b'<' => out.write_all(b"&lt;")?,
-            b'>' => out.write_all(b"&gt;")?,
-            b'"' => out.write_all(b"&quot;")?,
-            b'\'' => out.write_all(b"&apos;")?,
-            control if control < 0x20 && !matches!(control, b'\t' | b'\n' | b'\r') => {
-                out.write_all(b"?")?
+    let mut rest = text;
+    while !rest.is_empty() {
+        let error = match std::str::from_utf8(rest) {
+            Ok(valid) => return write_xml_chars(out, valid),
+            Err(error) => error,
+        };
+        let (valid, invalid) = rest.split_at(error.valid_up_to());
+        write_xml_chars(out, std::str::from_utf8(valid).unwrap_or(""))?;
+        // `None` means the name simply stops part-way through a sequence, so
+        // everything that is left is unusable.
+        let skipped = error.error_len().unwrap_or(invalid.len());
+        for _ in 0..skipped {
+            out.write_all(b"?")?;
+        }
+        rest = &invalid[skipped..];
+    }
+    Ok(())
+}
+
+fn write_xml_chars(out: &mut dyn Write, text: &str) -> io::Result<()> {
+    for ch in text.chars() {
+        match ch {
+            '&' => out.write_all(b"&amp;")?,
+            '<' => out.write_all(b"&lt;")?,
+            '>' => out.write_all(b"&gt;")?,
+            '"' => out.write_all(b"&quot;")?,
+            '\'' => out.write_all(b"&apos;")?,
+            _ if is_xml_char(ch) => {
+                let mut buf = [0u8; 4];
+                out.write_all(ch.encode_utf8(&mut buf).as_bytes())?
             }
-            other => out.write_all(&[other])?,
+            _ => out.write_all(b"?")?,
         }
     }
     Ok(())
+}
+
+/// The `Char` production of XML 1.0. `0x7f` is deliberately inside it: DEL is
+/// legal XML, so it travels through the way it always has.
+fn is_xml_char(ch: char) -> bool {
+    matches!(ch,
+        '\t' | '\n' | '\r'
+        | ' '..='\u{d7ff}'
+        | '\u{e000}'..='\u{fffd}'
+        | '\u{10000}'..='\u{10ffff}')
 }
 
 /// Percent-encode a relative path for use inside an `href`. Everything outside
@@ -1934,7 +2034,28 @@ mod tests {
         // XML 1.0 cannot represent these at all, so they must not reach the
         // document verbatim.
         assert_eq!(escaped(write_xml_escaped, b"ctl\x01name"), "ctl?name");
+        // The three controls XML does allow keep travelling untouched.
         assert_eq!(escaped(write_xml_escaped, b"tab\there"), "tab\there");
+        assert_eq!(escaped(write_xml_escaped, b"a\nb\rc"), "a\nb\rc");
+        // DEL is inside the `Char` production, unlike the C0 block.
+        assert_eq!(escaped(write_xml_escaped, b"del\x7fhere"), "del\x7fhere");
+    }
+
+    #[test]
+    fn xml_escape_replaces_bytes_that_are_not_utf8() {
+        // A document that declares UTF-8 cannot carry these, so passing them
+        // through would produce XML no parser will read.
+        assert_eq!(escaped_bytes(write_xml_escaped, b"bad\xff"), b"bad?");
+        assert_eq!(escaped_bytes(write_xml_escaped, b"\xff\xfe"), b"??");
+        // A name that stops part-way through a sequence loses the whole tail.
+        assert_eq!(escaped_bytes(write_xml_escaped, b"a\xe2\x82"), b"a??");
+        // Valid multi-byte characters are not touched.
+        assert_eq!(escaped(write_xml_escaped, "héllo".as_bytes()), "héllo");
+        assert_eq!(escaped(write_xml_escaped, "日本".as_bytes()), "日本");
+        // A noncharacter is valid UTF-8 but still illegal XML.
+        assert_eq!(escaped(write_xml_escaped, "a\u{ffff}b".as_bytes()), "a?b");
+        // Whatever comes after the bad byte is still escaped normally.
+        assert_eq!(escaped(write_xml_escaped, b"\xff&"), "?&amp;");
     }
 
     #[test]
@@ -1999,5 +2120,46 @@ mod tests {
         assert!(!pattern_match(br"a\*b", b"axxb"));
         assert!(pattern_match(br"a\?b", b"a?b"));
         assert!(pattern_match(br"[\]]", b"]"));
+    }
+
+    /// A `*` that has to give ground is retried one byte at a time rather than
+    /// re-tried against every remaining split, so a pattern full of them costs
+    /// the product of the two lengths instead of exponential time. The obvious
+    /// recursive spelling took half a minute on inputs this size.
+    #[test]
+    fn pattern_match_does_not_backtrack_exponentially() {
+        let name = [b'a'; 64];
+        let evil = b"*?*?*?*?*?*?*?*?*?*?*?*?*?*?*?*Q";
+
+        let started = std::time::Instant::now();
+        assert!(!pattern_match(evil, &name));
+        assert!(pattern_match(b"*?*?*?*?*?*?*?*?*?*?*?*?*?*?*?*a", &name));
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "matcher degenerated: took {:?}",
+            elapsed
+        );
+    }
+
+    /// The scan keeps only the most recent `*` to come back to, which is only
+    /// sound because every other element eats exactly one byte. These are the
+    /// shapes that catch it if that ever stops being true.
+    #[test]
+    fn pattern_match_backtracks_across_elements() {
+        assert!(pattern_match(b"*[0-9]", b"file7"));
+        assert!(!pattern_match(b"*[0-9]", b"file7x"));
+        assert!(pattern_match(b"*[0-9]*", b"a1b"));
+        assert!(pattern_match(br"*\**", b"a*b"));
+        assert!(!pattern_match(br"*\*", b"ab"));
+        assert!(pattern_match(b"*a*ab", b"aab"));
+        assert!(pattern_match(b"a*?b", b"axyb"));
+        assert!(!pattern_match(b"a*?b", b"ab"));
+        // A `*` inside a class is a member of it, never a wildcard.
+        assert!(pattern_match(b"[*]", b"*"));
+        assert!(!pattern_match(b"[*]", b"x"));
+        // Trailing stars can always match nothing.
+        assert!(pattern_match(b"ab***", b"ab"));
     }
 }

@@ -4624,6 +4624,15 @@ fn run_tree(args: &[&str]) -> std::process::Output {
     command.output().expect("failed to execute process")
 }
 
+/// `tree` run from inside a directory, so the arguments can stay relative.
+fn run_tree_in(dir: &Path, args: &[&str]) -> std::process::Output {
+    let mut command = idlebox_command();
+    command.current_dir(dir);
+    command.arg("tree");
+    command.args(args);
+    command.output().expect("failed to execute process")
+}
+
 /// The account name and group name the fixtures will be owned by, resolved the
 /// same way `tree` resolves them so the metadata columns can be matched exactly.
 #[cfg(unix)]
@@ -5062,6 +5071,61 @@ fn test_tree_html() {
     assert!(stdout.contains("5]&nbsp;&nbsp;<a href="));
     assert!(!stdout.contains("5]  <a href="));
 
+    // The columns are escaped a run at a time rather than a byte at a time, so
+    // pin the exact padding: `-p -s` right-aligns the size in eight columns and
+    // closes with two spaces, and every one of those has to be an `&nbsp;`.
+    let padded = run_tree(&[
+        "-p",
+        "-s",
+        "-H",
+        "https://example.com/files",
+        tmp_dir.to_str().unwrap(),
+    ]);
+    assert!(padded.status.success());
+    let stdout = String::from_utf8_lossy(&padded.stdout);
+    assert!(
+        stdout.contains(&format!(
+            "{}5]{}<a href=",
+            "&nbsp;".repeat(8),
+            "&nbsp;".repeat(2)
+        )),
+        "column padding changed: {}",
+        stdout
+    );
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// A name that is valid UTF-8 but not ASCII has to survive `-X`/`-H` intact:
+/// the escaper decodes to check for characters XML cannot spell, and must not
+/// mistake the trailing bytes of a multi-byte character for illegal ones.
+#[test]
+fn test_tree_keeps_multibyte_names_in_markup() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_multibyte");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    fs::write(tmp_dir.join("café.txt"), "x").unwrap();
+    fs::write(tmp_dir.join("日本語.md"), "x").unwrap();
+
+    let xml = run_tree(&["-X", tmp_dir.to_str().unwrap()]);
+    assert!(xml.status.success());
+    let stdout = String::from_utf8_lossy(&xml.stdout);
+    assert!(stdout.contains("name=\"café.txt\""), "got {}", stdout);
+    assert!(stdout.contains("name=\"日本語.md\""), "got {}", stdout);
+    // Nothing in a name was substituted; the only `?` belongs to the `<?xml` declaration.
+    assert!(
+        !stdout
+            .lines()
+            .any(|line| line.contains("name=") && line.contains('?')),
+        "a valid character was replaced: {}",
+        stdout
+    );
+
+    let html = run_tree(&["-H", "https://example.com/f", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&html.stdout);
+    assert!(stdout.contains(">café.txt</a>"), "got {}", stdout);
+    assert!(stdout.contains(">日本語.md</a>"), "got {}", stdout);
+
     let _ = fs::remove_dir_all(&tmp_dir);
 }
 
@@ -5464,6 +5528,30 @@ fn test_tree_output_file_excludes_its_own_staging_file() {
         leftovers
     );
 
+    // The same thing again with everything relative, which is how a shell
+    // usually spells it. `read_dir(".")` hands back `./x` while the staging
+    // path is a bare `x`, so anything comparing the two as text lists the
+    // scratch file it is in the middle of writing.
+    let bare = run_tree_in(&tmp_dir, &["-a", "-o", "bare.txt", "."]);
+    assert!(bare.status.success());
+    let written = fs::read_to_string(tmp_dir.join("bare.txt")).unwrap();
+    assert!(
+        !written.contains("idlebox-"),
+        "staging file listed for a bare relative -o: {}",
+        written
+    );
+    assert!(written.contains(".hidden.txt"));
+
+    // ...and with the destination one directory down from the walk root.
+    let nested = run_tree_in(&tmp_dir, &["-a", "-o", "z_dir/nested.txt", "."]);
+    assert!(nested.status.success());
+    let written = fs::read_to_string(tmp_dir.join("z_dir").join("nested.txt")).unwrap();
+    assert!(
+        !written.contains("idlebox-"),
+        "staging file listed for a nested relative -o: {}",
+        written
+    );
+
     let _ = fs::remove_dir_all(&tmp_dir);
 }
 
@@ -5671,6 +5759,105 @@ fn test_tree_xml_neutralizes_control_characters() {
     // JSON can spell it, so there the byte survives as an escape.
     let json = run_tree(&["-J", tmp_dir.to_str().unwrap()]);
     assert!(String::from_utf8_lossy(&json.stdout).contains(r#""name":"ctl\u0001name""#));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// A document declaring `encoding="UTF-8"` cannot carry a byte that is not
+/// valid UTF-8 either, so `-X` has to neutralize those the same way it does the
+/// control characters. `-J` deliberately does not: JSON keeps the raw bytes so
+/// two differently-named files stay distinguishable.
+#[test]
+#[cfg(unix)]
+fn test_tree_xml_neutralizes_bytes_that_are_not_utf8() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let raw: &[u8] = &[b'b', b'a', b'd', 0xff];
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_xmlrawbytes");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    fs::write(tmp_dir.join(OsStr::from_bytes(raw)), "x").unwrap();
+
+    let xml = run_tree(&["-X", tmp_dir.to_str().unwrap()]);
+    assert!(xml.status.success());
+    assert!(
+        std::str::from_utf8(&xml.stdout).is_ok(),
+        "XML holds bytes no parser will accept"
+    );
+    assert!(String::from_utf8_lossy(&xml.stdout).contains("name=\"bad?\""));
+
+    // HTML shares the escaper, so the link text is neutralized too — but the
+    // href still points at the real file, because it is percent-encoded.
+    let html = run_tree(&["-H", "https://example.com/f", tmp_dir.to_str().unwrap()]);
+    assert!(std::str::from_utf8(&html.stdout).is_ok());
+    let stdout = String::from_utf8_lossy(&html.stdout);
+    assert!(stdout.contains("bad%FF"), "got {}", stdout);
+    assert!(stdout.contains(">bad?</a>"), "got {}", stdout);
+
+    // The raw byte still reaches `-J` untouched.
+    let json = run_tree(&["-J", tmp_dir.to_str().unwrap()]);
+    assert!(json.stdout.windows(raw.len()).any(|window| window == raw));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// Upstream's `json_listdir()` leaves the `contents` key off a directory with
+/// nothing in it rather than writing an empty array, so a consumer can tell an
+/// empty directory from a file by the type alone.
+#[test]
+fn test_tree_json_omits_contents_for_empty_directory() {
+    let tmp_dir = tree_fixture("jsonempty");
+    fs::create_dir(tmp_dir.join("empty_dir")).unwrap();
+
+    let output = run_tree(&["-J", tmp_dir.to_str().unwrap()]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("{\"type\":\"directory\",\"name\":\"empty_dir\"}"),
+        "got {}",
+        stdout
+    );
+    // A directory that does hold something still carries the key.
+    assert!(stdout.contains("{\"type\":\"directory\",\"name\":\"a_dir\",\"contents\":["));
+
+    // `-d` empties `sub`, which holds only a file, so that drops the key too.
+    let dirs_only = run_tree(&["-J", "-d", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&dirs_only.stdout);
+    assert!(
+        stdout.contains("{\"type\":\"directory\",\"name\":\"sub\"}"),
+        "got {}",
+        stdout
+    );
+
+    // An empty root has nothing to hang a `contents` on either.
+    let root = run_tree(&["-J", tmp_dir.join("empty_dir").to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&root.stdout);
+    assert!(!stdout.contains("contents"), "got {}", stdout);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// A pattern full of `*` used to be matched by trying every split for every
+/// star, which is exponential: this one ran for half a minute against ordinary
+/// file names before the scan was made greedy.
+#[test]
+fn test_tree_pattern_does_not_hang() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_patternhang");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    fs::write(tmp_dir.join("a".repeat(60)), "x").unwrap();
+
+    let output = run_tree(&[
+        "-a",
+        "-P",
+        "*?*?*?*?*?*?*?*?*?*?*?*?*?*?*?*Q",
+        tmp_dir.to_str().unwrap(),
+    ]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("aaaa"), "got {}", stdout);
+    assert!(stdout.contains("1 directory, 0 files"), "got {}", stdout);
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
