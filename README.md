@@ -79,7 +79,7 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 | `touch` | Create empty files or update timestamps | Creates new files, updates mtime/atime on existing files |
 | `head` | Output the first part of files | `-n` lines, `-c` bytes, multi-file with headers, stdin pipe |
 | `tail` | Output the last part of files | `-n` lines, `-c` bytes, ring buffer for efficiency, stdin pipe |
-| `grep` | Search for patterns in files or stdin | `-i` ignore case, `-v` invert, `-n` line numbers, `-c` count |
+| `grep` | Search for patterns in files or stdin | `-i` ignore case, `-v` invert, `-n` line numbers, `-c` count, `-j`/`--threads` parallel multi-threaded search |
 | `chmod` | Change file mode bits | Octal numeric mode, `-R` recursive directory traversal |
 | `chown` | Change file owner and group | POSIX `user[:group]` syntax, `-R` recursive, numeric ID or name |
 | `chgrp` | Change group ownership | Group name or numeric GID, `-R` recursive |
@@ -102,8 +102,8 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 | `uname` | Print system information | POSIX `uname()` FFI, `-a` all, `-s`/`-n`/`-r`/`-v`/`-m` individual fields |
 | `test` / `[` | Evaluate conditional expressions | POSIX-compatible `test` and `[` forms, file/string/numeric tests, logical operators |
 | `expr` | Evaluate expressions and print result | Arithmetic, comparison, logical, string ops; recursive descent parser |
-| `find` | Search for files in a directory hierarchy | Glob `-name`, `-type`, `-maxdepth`, `-empty`; pure Rust traversal |
-| `wc` | Print newline, word, and byte counts | 8 KiB streaming counter, `-l`/`-w`/`-c`/`-m`, multi-file `total`, stdin pipe |
+| `find` | Search for files in a directory hierarchy | Glob `-name`, `-type`, `-maxdepth`, `-empty`, `-j`/`--threads` parallel directory walker; pure Rust traversal |
+| `wc` | Print newline, word, and byte counts | 8 KiB streaming counter, `-l`/`-w`/`-c`/`-m`, `-j`/`--threads` parallel counting, multi-file `total`, stdin pipe |
 | `sort` | Sort lines of text files | `-r` reverse, `-n` numeric, `-u` unique, multi-file merge |
 | `uniq` | Report or omit repeated lines | Constant-memory group processing, optional output file, `-c`/`-d`/`-u`/`-i` |
 | `cut` | Remove sections from each line | `-d` delimiter, `-f` fields, `-c` characters, range support |

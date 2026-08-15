@@ -6036,3 +6036,348 @@ fn test_tree_charset_attached_value() {
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
+
+#[test]
+fn test_grep_parallel_matches_single_thread() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_grep_parallel");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    for i in 0..10 {
+        let file = tmp_dir.join(format!("file{}.txt", i));
+        fs::write(&file, format!("line1\napple{}\nline3\nbanana\n", i)).unwrap();
+    }
+
+    let files: Vec<String> = (0..10).map(|i| tmp_dir.join(format!("file{}.txt", i)).to_str().unwrap().to_string()).collect();
+    let mut args = vec!["grep".to_string(), "apple".to_string()];
+    args.extend(files.iter().map(|s| s.clone()));
+
+    let output_single = idlebox_command()
+        .args(&args)
+        .args(["-j", "1"])
+        .output()
+        .expect("failed to execute process");
+
+    let output_parallel = idlebox_command()
+        .args(&args)
+        .args(["-j", "4"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output_single.status.success());
+    assert!(output_parallel.status.success());
+
+    let stdout_single = String::from_utf8_lossy(&output_single.stdout);
+    let stdout_parallel = String::from_utf8_lossy(&output_parallel.stdout);
+
+    let mut lines_single: Vec<&str> = stdout_single.trim().lines().collect();
+    let mut lines_parallel: Vec<&str> = stdout_parallel.trim().lines().collect();
+    lines_single.sort();
+    lines_parallel.sort();
+
+    assert_eq!(lines_single, lines_parallel);
+    assert_eq!(lines_single.len(), 10);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_grep_parallel_count_mode() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_grep_parallel_count");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    for i in 0..5 {
+        let file = tmp_dir.join(format!("file{}.txt", i));
+        fs::write(&file, format!("apple\nbanana\napple\ncherry\n", )).unwrap();
+    }
+
+    let files: Vec<String> = (0..5).map(|i| tmp_dir.join(format!("file{}.txt", i)).to_str().unwrap().to_string()).collect();
+    let mut args = vec!["grep".to_string(), "-c".to_string(), "apple".to_string()];
+    args.extend(files.iter().map(|s| s.clone()));
+
+    let output_single = idlebox_command()
+        .args(&args)
+        .args(["-j", "1"])
+        .output()
+        .expect("failed to execute process");
+
+    let output_parallel = idlebox_command()
+        .args(&args)
+        .args(["-j", "4"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output_single.status.success());
+    assert!(output_parallel.status.success());
+
+    let stdout_single = String::from_utf8_lossy(&output_single.stdout);
+    let stdout_parallel = String::from_utf8_lossy(&output_parallel.stdout);
+
+    let mut lines_single: Vec<&str> = stdout_single.trim().lines().collect();
+    let mut lines_parallel: Vec<&str> = stdout_parallel.trim().lines().collect();
+    lines_single.sort();
+    lines_parallel.sort();
+
+    assert_eq!(lines_single, lines_parallel);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_find_parallel_matches_single_thread() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_find_parallel");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    for i in 0..5 {
+        let subdir = tmp_dir.join(format!("dir{}", i));
+        fs::create_dir_all(&subdir).unwrap();
+        for j in 0..5 {
+            let file = subdir.join(format!("file{}.rs", j));
+            fs::write(&file, "code").unwrap();
+            let file = subdir.join(format!("file{}.txt", j));
+            fs::write(&file, "text").unwrap();
+        }
+    }
+
+    let output_single = idlebox_command()
+        .args(["find", tmp_dir.to_str().unwrap(), "-name", "*.rs", "-j", "1"])
+        .output()
+        .expect("failed to execute process");
+
+    let output_parallel = idlebox_command()
+        .args(["find", tmp_dir.to_str().unwrap(), "-name", "*.rs", "-j", "4"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output_single.status.success());
+    assert!(output_parallel.status.success());
+
+    let stdout_single = String::from_utf8_lossy(&output_single.stdout);
+    let stdout_parallel = String::from_utf8_lossy(&output_parallel.stdout);
+
+    let mut lines_single: Vec<&str> = stdout_single.trim().lines().collect();
+    let mut lines_parallel: Vec<&str> = stdout_parallel.trim().lines().collect();
+    lines_single.sort();
+    lines_parallel.sort();
+
+    assert_eq!(lines_single, lines_parallel);
+    assert_eq!(lines_single.len(), 25);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_find_parallel_with_type_filter() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_find_parallel_type");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    for i in 0..3 {
+        let subdir = tmp_dir.join(format!("dir{}", i));
+        fs::create_dir_all(&subdir).unwrap();
+        for j in 0..3 {
+            let file = subdir.join(format!("file{}.txt", j));
+            fs::write(&file, "content").unwrap();
+        }
+    }
+
+    let output_single = idlebox_command()
+        .args(["find", tmp_dir.to_str().unwrap(), "-type", "f", "-j", "1"])
+        .output()
+        .expect("failed to execute process");
+
+    let output_parallel = idlebox_command()
+        .args(["find", tmp_dir.to_str().unwrap(), "-type", "f", "-j", "4"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output_single.status.success());
+    assert!(output_parallel.status.success());
+
+    let stdout_single = String::from_utf8_lossy(&output_single.stdout);
+    let stdout_parallel = String::from_utf8_lossy(&output_parallel.stdout);
+
+    let mut lines_single: Vec<&str> = stdout_single.trim().lines().collect();
+    let mut lines_parallel: Vec<&str> = stdout_parallel.trim().lines().collect();
+    lines_single.sort();
+    lines_parallel.sort();
+
+    assert_eq!(lines_single, lines_parallel);
+    assert_eq!(lines_single.len(), 9);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_wc_parallel_matches_single_thread() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_wc_parallel");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    for i in 0..8 {
+        let file = tmp_dir.join(format!("file{}.txt", i));
+        let content = format!("line1 word1\nline2 word2 word3\nline3\n", );
+        fs::write(&file, content).unwrap();
+    }
+
+    let files: Vec<String> = (0..8).map(|i| tmp_dir.join(format!("file{}.txt", i)).to_str().unwrap().to_string()).collect();
+    let mut args = vec!["wc".to_string(), "-l".to_string()];
+    args.extend(files.iter().map(|s| s.clone()));
+
+    let output_single = idlebox_command()
+        .args(&args)
+        .args(["-j", "1"])
+        .output()
+        .expect("failed to execute process");
+
+    let output_parallel = idlebox_command()
+        .args(&args)
+        .args(["-j", "4"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output_single.status.success());
+    assert!(output_parallel.status.success());
+
+    let stdout_single = String::from_utf8_lossy(&output_single.stdout);
+    let stdout_parallel = String::from_utf8_lossy(&output_parallel.stdout);
+
+    let mut lines_single: Vec<&str> = stdout_single.trim().lines().collect();
+    let mut lines_parallel: Vec<&str> = stdout_parallel.trim().lines().collect();
+    lines_single.sort();
+    lines_parallel.sort();
+
+    assert_eq!(lines_single, lines_parallel);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_wc_parallel_all_counts() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_wc_parallel_all");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    for i in 0..6 {
+        let file = tmp_dir.join(format!("file{}.txt", i));
+        let content = format!("hello world\nfoo bar baz\ntest\n", );
+        fs::write(&file, content).unwrap();
+    }
+
+    let files: Vec<String> = (0..6).map(|i| tmp_dir.join(format!("file{}.txt", i)).to_str().unwrap().to_string()).collect();
+    let mut args = vec!["wc".to_string()];
+    args.extend(files.iter().map(|s| s.clone()));
+
+    let output_single = idlebox_command()
+        .args(&args)
+        .args(["-j", "1"])
+        .output()
+        .expect("failed to execute process");
+
+    let output_parallel = idlebox_command()
+        .args(&args)
+        .args(["-j", "8"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output_single.status.success());
+    assert!(output_parallel.status.success());
+
+    let stdout_single = String::from_utf8_lossy(&output_single.stdout);
+    let stdout_parallel = String::from_utf8_lossy(&output_parallel.stdout);
+
+    let mut lines_single: Vec<&str> = stdout_single.trim().lines().collect();
+    let mut lines_parallel: Vec<&str> = stdout_parallel.trim().lines().collect();
+    lines_single.sort();
+    lines_parallel.sort();
+
+    assert_eq!(lines_single, lines_parallel);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_grep_parallel_default_threads() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_grep_parallel_default");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    for i in 0..5 {
+        let file = tmp_dir.join(format!("file{}.txt", i));
+        fs::write(&file, format!("apple\nbanana\napple\n", )).unwrap();
+    }
+
+    let files: Vec<String> = (0..5).map(|i| tmp_dir.join(format!("file{}.txt", i)).to_str().unwrap().to_string()).collect();
+    let mut args = vec!["grep".to_string(), "apple".to_string()];
+    args.extend(files.iter().map(|s| s.clone()));
+
+    let output = idlebox_command()
+        .args(&args)
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines.len(), 10);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_find_parallel_default_threads() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_find_parallel_default");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    for i in 0..3 {
+        let subdir = tmp_dir.join(format!("dir{}", i));
+        fs::create_dir_all(&subdir).unwrap();
+        for j in 0..3 {
+            let file = subdir.join(format!("file{}.txt", j));
+            fs::write(&file, "content").unwrap();
+        }
+    }
+
+    let output = idlebox_command()
+        .args(["find", tmp_dir.to_str().unwrap(), "-type", "f"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.trim().lines().collect();
+    assert_eq!(lines.len(), 9);
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_wc_parallel_default_threads() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_wc_parallel_default");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    for i in 0..4 {
+        let file = tmp_dir.join(format!("file{}.txt", i));
+        fs::write(&file, "line1\nline2\nline3\n").unwrap();
+    }
+
+    let files: Vec<String> = (0..4).map(|i| tmp_dir.join(format!("file{}.txt", i)).to_str().unwrap().to_string()).collect();
+    let mut args = vec!["wc".to_string(), "-l".to_string()];
+    args.extend(files.iter().map(|s| s.clone()));
+
+    let output = idlebox_command()
+        .args(&args)
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("total"));
+    assert!(stdout.contains("12"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}

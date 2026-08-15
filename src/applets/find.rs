@@ -1,6 +1,10 @@
 use crate::core::Applet;
+use std::collections::VecDeque;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 pub struct FindApplet;
 
@@ -19,6 +23,7 @@ impl Applet for FindApplet {
         let mut type_filter: Option<char> = None;
         let mut max_depth: Option<usize> = None;
         let mut empty_only = false;
+        let mut num_threads: Option<usize> = None;
 
         let mut i = 0;
         while i < args.len() {
@@ -62,6 +67,20 @@ impl Applet for FindApplet {
                 "-empty" => {
                     empty_only = true;
                 }
+                "-j" | "--threads" => {
+                    i += 1;
+                    if i >= args.len() {
+                        eprintln!("find: missing argument for -j");
+                        return Ok(1);
+                    }
+                    num_threads = Some(match args[i].parse::<usize>() {
+                        Ok(n) if n > 0 => n,
+                        _ => {
+                            eprintln!("find: invalid thread count: {}", args[i]);
+                            return Ok(1);
+                        }
+                    });
+                }
                 _ => {
                     if args[i].starts_with('-') {
                         eprintln!("find: unknown option: {}", args[i]);
@@ -77,14 +96,31 @@ impl Applet for FindApplet {
             paths.push(".".to_string());
         }
 
-        for path in &paths {
-            find_recursive(
-                Path::new(path),
+        let num_threads = num_threads.unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1)
+        });
+
+        if num_threads <= 1 {
+            for path in &paths {
+                find_recursive(
+                    Path::new(path),
+                    &name_pattern,
+                    &type_filter,
+                    &max_depth,
+                    empty_only,
+                    0,
+                )?;
+            }
+        } else {
+            find_parallel(
+                &paths,
                 &name_pattern,
                 &type_filter,
                 &max_depth,
                 empty_only,
-                0,
+                num_threads,
             )?;
         }
 
@@ -101,6 +137,7 @@ impl Applet for FindApplet {
         println!("  -type TYPE     filter by type: f (file), d (directory), l (symlink)");
         println!("  -maxdepth N    limit recursion depth");
         println!("  -empty         match only empty files or directories");
+        println!("  -j, --threads N  use N threads for parallel search (default: auto)");
         println!();
         println!("Examples:");
         println!("  find . -name '*.rs'");
@@ -150,6 +187,147 @@ fn find_recursive(
     }
 
     Ok(())
+}
+
+fn find_parallel(
+    paths: &[String],
+    name_pattern: &Option<String>,
+    type_filter: &Option<char>,
+    max_depth: &Option<usize>,
+    empty_only: bool,
+    num_threads: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let options = Arc::new(FindOptions {
+        name_pattern: name_pattern.clone(),
+        type_filter: *type_filter,
+        max_depth: *max_depth,
+        empty_only,
+    });
+
+    let work_queue = Arc::new(Mutex::new(VecDeque::<(PathBuf, usize)>::new()));
+    {
+        let mut queue = work_queue.lock().unwrap();
+        for path in paths {
+            queue.push_back((PathBuf::from(path), 0));
+        }
+    }
+
+    let (tx, rx) = mpsc::channel::<Vec<PathBuf>>();
+    let active_threads = Arc::new(Mutex::new(0usize));
+
+    let mut handles = Vec::new();
+    for _ in 0..num_threads {
+        let work_queue = Arc::clone(&work_queue);
+        let options = Arc::clone(&options);
+        let tx = tx.clone();
+        let active_threads = Arc::clone(&active_threads);
+
+        let handle = thread::spawn(move || {
+            let mut local_results = Vec::new();
+
+            loop {
+                let (path, depth) = {
+                    let mut queue = work_queue.lock().unwrap();
+                    if let Some(item) = queue.pop_front() {
+                        *active_threads.lock().unwrap() += 1;
+                        item
+                    } else if *active_threads.lock().unwrap() == 0 {
+                        break;
+                    } else {
+                        continue;
+                    }
+                };
+
+                if let Some(max) = options.max_depth {
+                    if depth > max {
+                        *active_threads.lock().unwrap() -= 1;
+                        continue;
+                    }
+                }
+
+                let metadata = match fs::symlink_metadata(&path) {
+                    Ok(m) => m,
+                    Err(_) => {
+                        *active_threads.lock().unwrap() -= 1;
+                        continue;
+                    }
+                };
+
+                let is_match = match check_match(
+                    &path,
+                    &metadata,
+                    &options.name_pattern,
+                    &options.type_filter,
+                    options.empty_only,
+                ) {
+                    Ok(m) => m,
+                    Err(_) => {
+                        *active_threads.lock().unwrap() -= 1;
+                        continue;
+                    }
+                };
+
+                if is_match {
+                    local_results.push(path.clone());
+                }
+
+                if metadata.file_type().is_dir() {
+                    let entries = match fs::read_dir(&path) {
+                        Ok(e) => e,
+                        Err(_) => {
+                            *active_threads.lock().unwrap() -= 1;
+                            continue;
+                        }
+                    };
+
+                    let mut subdirs: Vec<PathBuf> = entries
+                        .filter_map(|e| e.ok())
+                        .map(|e| e.path())
+                        .collect();
+                    subdirs.sort_unstable_by(|a, b| {
+                        a.file_name().cmp(&b.file_name())
+                    });
+
+                    {
+                        let mut queue = work_queue.lock().unwrap();
+                        for subdir in subdirs {
+                            queue.push_back((subdir, depth + 1));
+                        }
+                    }
+                }
+
+                *active_threads.lock().unwrap() -= 1;
+            }
+
+            tx.send(local_results).ok();
+        });
+        handles.push(handle);
+    }
+
+    drop(tx);
+
+    let mut all_results: Vec<PathBuf> = Vec::new();
+    for results in rx {
+        all_results.extend(results);
+    }
+
+    for handle in handles {
+        handle.join().ok();
+    }
+
+    all_results.sort();
+    for path in all_results {
+        println!("{}", path.display());
+    }
+
+    Ok(())
+}
+
+struct FindOptions {
+    name_pattern: Option<String>,
+    type_filter: Option<char>,
+    max_depth: Option<usize>,
+    empty_only: bool,
 }
 
 fn check_match(
