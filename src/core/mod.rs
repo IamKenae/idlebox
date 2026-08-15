@@ -8,4 +8,6 @@ pub(crate) mod unix_ffi;
 
 pub use applet::Applet;
 pub use dispatcher::Dispatcher;
-pub(crate) use size_format::{human_size, rounded_percentage};
+pub(crate) use size_format::human_size;
+#[cfg(any(target_os = "linux", windows))]
+pub(crate) use size_format::rounded_percentage;

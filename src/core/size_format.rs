@@ -27,6 +27,7 @@ pub(crate) fn human_size(bytes: u64, include_byte_suffix: bool, include_tenths: 
     }
 }
 
+#[cfg(any(target_os = "linux", windows, test))]
 pub(crate) fn rounded_percentage(part: u64, total: u64) -> u64 {
     if total == 0 {
         return 0;

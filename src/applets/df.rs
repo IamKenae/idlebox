@@ -1,4 +1,6 @@
-use crate::core::{human_size, rounded_percentage, Applet};
+use crate::core::Applet;
+#[cfg(any(target_os = "linux", windows))]
+use crate::core::{human_size, rounded_percentage};
 use std::io::{self, Write};
 
 pub struct DfApplet;
