@@ -707,6 +707,105 @@ fn test_cp_file() {
 }
 
 #[test]
+fn test_cp_force_overwrites_existing_file() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_cp_force");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let src = tmp_dir.join("source.txt");
+    let dst = tmp_dir.join("dest.txt");
+    fs::write(&src, "new content").unwrap();
+    fs::write(&dst, "old content").unwrap();
+
+    let output = idlebox_command()
+        .args(["cp", "-f", src.to_str().unwrap(), dst.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert_eq!(fs::read_to_string(&src).unwrap(), "new content");
+    assert_eq!(fs::read_to_string(&dst).unwrap(), "new content");
+    assert!(fs::read_dir(&tmp_dir).unwrap().all(|entry| !entry
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .contains(".idlebox-")));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_cp_force_rejects_same_path_without_removing_source() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_cp_force_same");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("same.txt");
+    fs::write(&file, "keep me").unwrap();
+
+    let output = idlebox_command()
+        .args(["cp", "-f", file.to_str().unwrap(), file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("same file"));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "keep me");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_cp_force_rejects_hard_link_alias_without_breaking_links() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_cp_force_hardlink");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let src = tmp_dir.join("source.txt");
+    let alias = tmp_dir.join("alias.txt");
+    fs::write(&src, "keep both").unwrap();
+    fs::hard_link(&src, &alias).unwrap();
+
+    let output = idlebox_command()
+        .args(["cp", "-f", src.to_str().unwrap(), alias.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("same file"));
+    assert_eq!(fs::read_to_string(&src).unwrap(), "keep both");
+    assert_eq!(fs::read_to_string(&alias).unwrap(), "keep both");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_cp_rejects_copying_symlink_onto_itself_without_removing_it() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_cp_symlink_same");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let link = tmp_dir.join("link");
+    std::os::unix::fs::symlink("target", &link).unwrap();
+
+    let output = idlebox_command()
+        .args(["cp", link.to_str().unwrap(), link.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("same file"));
+    assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+    assert_eq!(
+        fs::read_link(&link).unwrap(),
+        std::path::Path::new("target")
+    );
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
 fn test_cp_recursive() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_cp_r");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -1766,6 +1865,75 @@ fn test_ln_force_overwrite() {
 }
 
 #[test]
+fn test_ln_force_missing_source_preserves_existing_destination() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_ln_force_missing");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let missing = tmp_dir.join("missing.txt");
+    let destination = tmp_dir.join("destination.txt");
+    fs::write(&destination, "keep me").unwrap();
+
+    let output = idlebox_command()
+        .args([
+            "ln",
+            "-f",
+            missing.to_str().unwrap(),
+            destination.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    assert_eq!(fs::read_to_string(&destination).unwrap(), "keep me");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_ln_force_rejects_same_file_without_removing_it() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_ln_force_same");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let file = tmp_dir.join("same.txt");
+    fs::write(&file, "keep me").unwrap();
+
+    let output = idlebox_command()
+        .args(["ln", "-f", file.to_str().unwrap(), file.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("same file"));
+    assert_eq!(fs::read_to_string(&file).unwrap(), "keep me");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_ln_accepts_double_dash_for_dash_prefixed_paths() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_ln_double_dash");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    fs::write(tmp_dir.join("-source"), "content").unwrap();
+
+    let output = idlebox_command()
+        .current_dir(&tmp_dir)
+        .args(["ln", "--", "-source", "-link"])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(output.status.success());
+    assert_eq!(
+        fs::read_to_string(tmp_dir.join("-link")).unwrap(),
+        "content"
+    );
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
 fn test_ln_multiple_to_dir() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_ln_multi");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -2734,6 +2902,7 @@ fn test_uniq_streams_to_output_file() {
     let input = tmp_dir.join("input.txt");
     let output = tmp_dir.join("output.txt");
     fs::write(&input, "a\na\nb\n").unwrap();
+    fs::write(&output, "old output\n").unwrap();
 
     let result = idlebox_command()
         .args([
@@ -2750,6 +2919,55 @@ fn test_uniq_streams_to_output_file() {
     let written = fs::read_to_string(output).unwrap();
     assert!(written.contains("2 a"));
     assert!(written.contains("1 b"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_uniq_rejects_hard_link_output_alias_without_truncating_input() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_uniq_hardlink_alias");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let input = tmp_dir.join("input.txt");
+    let output = tmp_dir.join("output.txt");
+    fs::write(&input, "a\na\nb\n").unwrap();
+    fs::hard_link(&input, &output).unwrap();
+
+    let result = idlebox_command()
+        .args(["uniq", input.to_str().unwrap(), output.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("different files"));
+    assert_eq!(fs::read_to_string(&input).unwrap(), "a\na\nb\n");
+    assert_eq!(fs::read_to_string(&output).unwrap(), "a\na\nb\n");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+#[cfg(unix)]
+fn test_uniq_rejects_symlink_output_alias_without_truncating_input() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_uniq_symlink_alias");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let input = tmp_dir.join("input.txt");
+    let output = tmp_dir.join("output.txt");
+    fs::write(&input, "a\na\nb\n").unwrap();
+    std::os::unix::fs::symlink(&input, &output).unwrap();
+
+    let result = idlebox_command()
+        .args(["uniq", input.to_str().unwrap(), output.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("different files"));
+    assert_eq!(fs::read_to_string(&input).unwrap(), "a\na\nb\n");
+    assert!(output.symlink_metadata().unwrap().file_type().is_symlink());
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }

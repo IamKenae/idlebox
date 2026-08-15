@@ -4,14 +4,15 @@ use std::env;
 use std::fs;
 #[cfg(any(unix, windows))]
 use std::path::{Path, PathBuf};
-#[cfg(any(unix, windows))]
-use std::process;
 
 #[cfg(unix)]
 use std::os::unix::fs::symlink;
 
 #[cfg(any(unix, windows))]
-use crate::core::Dispatcher;
+use crate::core::{
+    file_ops::{replace_file, unique_sibling_path},
+    Dispatcher,
+};
 
 pub fn install(target: Option<&str>) -> Result<i32, Box<dyn std::error::Error>> {
     #[cfg(not(any(unix, windows)))]
@@ -90,9 +91,19 @@ fn install_launcher(
     let staged_path = unique_sibling_path(launcher_path, "new")?;
     let method = create_launcher(source, &staged_path)?;
 
-    if let Err(error) = replace_launcher(&staged_path, launcher_path) {
-        let _ = fs::remove_file(&staged_path);
-        return Err(error);
+    let warning = match replace_file(&staged_path, launcher_path) {
+        Ok(warning) => warning,
+        Err(error) => {
+            let _ = fs::remove_file(&staged_path);
+            return Err(error.into());
+        }
+    };
+    if let Some(warning) = warning {
+        eprintln!(
+            "idlebox: warning: launcher was installed, but old backup {} could not be removed: {}",
+            warning.backup_path.display(),
+            warning.error
+        );
     }
 
     Ok(method)
@@ -144,114 +155,6 @@ fn copy_exclusive(source: &Path, destination: &Path) -> Result<(), std::io::Erro
             Err(error)
         }
     }
-}
-
-#[cfg(unix)]
-fn replace_launcher(
-    staged_path: &Path,
-    launcher_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    match fs::symlink_metadata(launcher_path) {
-        Ok(metadata) if metadata.file_type().is_dir() => {
-            return Err(format!(
-                "cannot replace launcher {} because it is a directory",
-                launcher_path.display()
-            )
-            .into());
-        }
-        Ok(_) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error.into()),
-    }
-
-    fs::rename(staged_path, launcher_path)?;
-    Ok(())
-}
-
-#[cfg(windows)]
-fn replace_launcher(
-    staged_path: &Path,
-    launcher_path: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let existing = match fs::symlink_metadata(launcher_path) {
-        Ok(metadata) => Some(metadata),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error.into()),
-    };
-
-    let Some(existing) = existing else {
-        fs::rename(staged_path, launcher_path)?;
-        return Ok(());
-    };
-
-    if existing.file_type().is_dir() {
-        return Err(format!(
-            "cannot replace launcher {} because it is a directory",
-            launcher_path.display()
-        )
-        .into());
-    }
-
-    let backup_path = unique_sibling_path(launcher_path, "old")?;
-    fs::rename(launcher_path, &backup_path)?;
-
-    if let Err(install_error) = fs::rename(staged_path, launcher_path) {
-        return match fs::rename(&backup_path, launcher_path) {
-            Ok(()) => Err(install_error.into()),
-            Err(rollback_error) => Err(format!(
-                "failed to install launcher {}: {}; rollback from {} also failed: {}",
-                launcher_path.display(),
-                install_error,
-                backup_path.display(),
-                rollback_error
-            )
-            .into()),
-        };
-    }
-
-    if let Err(error) = fs::remove_file(&backup_path) {
-        eprintln!(
-            "idlebox: warning: launcher was installed, but old backup {} could not be removed: {}",
-            backup_path.display(),
-            error
-        );
-    }
-
-    Ok(())
-}
-
-#[cfg(any(unix, windows))]
-fn unique_sibling_path(
-    launcher_path: &Path,
-    purpose: &str,
-) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let parent = launcher_path.parent().unwrap_or_else(|| Path::new("."));
-    let file_name = launcher_path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("applet");
-
-    for attempt in 0..1000 {
-        let candidate = parent.join(format!(
-            ".{}.idlebox-{}-{}-{}",
-            file_name,
-            process::id(),
-            purpose,
-            attempt
-        ));
-
-        match fs::symlink_metadata(&candidate) {
-            Ok(_) => continue,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(candidate),
-            Err(error) => return Err(error.into()),
-        }
-    }
-
-    Err(format!(
-        "could not allocate a temporary path next to {}",
-        launcher_path.display()
-    )
-    .into())
 }
 
 #[cfg(unix)]

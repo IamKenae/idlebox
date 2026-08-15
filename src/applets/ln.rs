@@ -1,6 +1,10 @@
-use crate::core::Applet;
+use crate::core::{
+    file_ops::{replace_file, same_file, unique_sibling_path, FollowSymlinks},
+    Applet,
+};
 use std::fs;
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
 
 pub struct LnApplet;
 
@@ -26,6 +30,10 @@ impl Applet for LnApplet {
                 "-sf" | "-fs" => {
                     symbolic = true;
                     force = true;
+                }
+                "--" => {
+                    positional.extend(args[i + 1..].iter().map(String::as_str));
+                    break;
                 }
                 _ if args[i].starts_with('-') && args[i].len() > 1 => {
                     let mut combined = true;
@@ -70,43 +78,78 @@ impl Applet for LnApplet {
             let link_path = if target_is_dir {
                 let src_name = Path::new(src)
                     .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| src.to_string());
-                Path::new(target)
-                    .join(&src_name)
-                    .to_string_lossy()
-                    .to_string()
+                    .map(ToOwned::to_owned)
+                    .unwrap_or_else(|| (*src).into());
+                Path::new(target).join(src_name)
             } else {
-                target.to_string()
+                PathBuf::from(target)
             };
 
-            let link = Path::new(&link_path);
-
-            if link.exists() || link.symlink_metadata().is_ok() {
-                if force {
-                    let _ = fs::remove_file(link);
-                } else {
+            let existing = match fs::symlink_metadata(&link_path) {
+                Ok(metadata) => Some(metadata),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+                Err(error) => {
                     eprintln!(
-                        "ln: failed to create {} link '{}': File exists",
+                        "ln: failed to inspect {} link '{}': {}",
                         if symbolic { "symbolic" } else { "hard" },
-                        link_path
+                        link_path.display(),
+                        error
                     );
                     failed = true;
                     continue;
                 }
+            };
+
+            if existing.is_some() && !force {
+                eprintln!(
+                    "ln: failed to create {} link '{}': File exists",
+                    if symbolic { "symbolic" } else { "hard" },
+                    link_path.display()
+                );
+                failed = true;
+                continue;
             }
 
-            let result = if symbolic {
-                create_symlink(src, link)
+            if existing.is_some() {
+                match same_file(Path::new(src), &link_path, FollowSymlinks::No) {
+                    Ok(true) => {
+                        eprintln!(
+                            "ln: '{}' and '{}' are the same file",
+                            src,
+                            link_path.display()
+                        );
+                        failed = true;
+                        continue;
+                    }
+                    Ok(false) => {}
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                    // A symbolic-link target may intentionally be inaccessible;
+                    // creating the link does not require reading that target.
+                    Err(_) if symbolic => {}
+                    Err(error) => {
+                        eprintln!(
+                            "ln: failed to compare '{}' and '{}': {}",
+                            src,
+                            link_path.display(),
+                            error
+                        );
+                        failed = true;
+                        continue;
+                    }
+                }
+            }
+
+            let result = if existing.is_some() {
+                Self::replace_link(src, &link_path, symbolic)
             } else {
-                fs::hard_link(src, link)
+                Self::create_link(src, &link_path, symbolic)
             };
 
             if let Err(e) = result {
                 eprintln!(
                     "ln: failed to create {} link '{}' -> '{}': {}",
                     if symbolic { "symbolic" } else { "hard" },
-                    link_path,
+                    link_path.display(),
                     src,
                     e
                 );
@@ -130,6 +173,59 @@ impl Applet for LnApplet {
         println!("Options:");
         println!("  -s, --symbolic   Create a symbolic link");
         println!("  -f, --force      Remove existing destination files");
+    }
+}
+
+impl LnApplet {
+    fn create_link(src: &str, destination: &Path, symbolic: bool) -> io::Result<()> {
+        if symbolic {
+            create_symlink(src, destination)
+        } else {
+            fs::hard_link(src, destination)
+        }
+    }
+
+    fn replace_link(src: &str, destination: &Path, symbolic: bool) -> io::Result<()> {
+        let staged_path = unique_sibling_path(destination, "link")?;
+        Self::create_link(src, &staged_path, symbolic)?;
+
+        if !symbolic {
+            match same_file(&staged_path, destination, FollowSymlinks::No) {
+                Ok(true) => {
+                    let _ = fs::remove_file(&staged_path);
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "'{}' and '{}' are the same file",
+                            src,
+                            destination.display()
+                        ),
+                    ));
+                }
+                Ok(false) => {}
+                Err(error) => {
+                    let _ = fs::remove_file(&staged_path);
+                    return Err(error);
+                }
+            }
+        }
+
+        match replace_file(&staged_path, destination) {
+            Ok(warning) => {
+                if let Some(warning) = warning {
+                    eprintln!(
+                        "ln: warning: link was created, but old backup '{}' could not be removed: {}",
+                        warning.backup_path.display(),
+                        warning.error
+                    );
+                }
+                Ok(())
+            }
+            Err(error) => {
+                let _ = fs::remove_file(&staged_path);
+                Err(error)
+            }
+        }
     }
 }
 

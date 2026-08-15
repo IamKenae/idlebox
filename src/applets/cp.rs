@@ -1,5 +1,8 @@
-use crate::core::Applet;
-use std::fs;
+use crate::core::{
+    file_ops::{replace_file, same_file, unique_sibling_path, FollowSymlinks},
+    Applet,
+};
+use std::fs::{self, OpenOptions};
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
@@ -133,15 +136,53 @@ impl Applet for CpApplet {
 
 impl CpApplet {
     fn copy_file(src: &Path, dest: &Path, force: bool) -> io::Result<()> {
-        if force {
-            if let Ok(metadata) = fs::symlink_metadata(dest) {
-                if !metadata.is_dir() {
-                    fs::remove_file(dest)?;
-                }
-            }
+        if same_file(src, dest, FollowSymlinks::Yes)? {
+            return Err(Self::same_file_error(src, dest));
         }
+
+        let destination = match fs::symlink_metadata(dest) {
+            Ok(metadata) => Some(metadata),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error),
+        };
+
+        if force && destination.is_some_and(|metadata| !metadata.is_dir()) {
+            return Self::copy_file_staged(src, dest);
+        }
+
         fs::copy(src, dest)?;
         Ok(())
+    }
+
+    fn copy_file_staged(src: &Path, dest: &Path) -> io::Result<()> {
+        let staged_path = unique_sibling_path(dest, "copy")?;
+        OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&staged_path)?;
+
+        if let Err(error) = fs::copy(src, &staged_path) {
+            let _ = fs::remove_file(&staged_path);
+            return Err(error);
+        }
+
+        match replace_file(&staged_path, dest) {
+            Ok(warning) => {
+                if let Some(warning) = warning {
+                    eprintln!(
+                        "cp: warning: copied '{}', but old backup '{}' could not be removed: {}",
+                        dest.display(),
+                        warning.backup_path.display(),
+                        warning.error
+                    );
+                }
+                Ok(())
+            }
+            Err(error) => {
+                let _ = fs::remove_file(&staged_path);
+                Err(error)
+            }
+        }
     }
 
     fn copy_dir_recursive(src: &Path, dest: &Path, force: bool) -> io::Result<()> {
@@ -166,18 +207,55 @@ impl CpApplet {
     }
 
     fn copy_symlink(src: &Path, dest: &Path) -> io::Result<()> {
-        if let Ok(metadata) = fs::symlink_metadata(dest) {
-            if metadata.is_dir() && !metadata.file_type().is_symlink() {
+        if same_file(src, dest, FollowSymlinks::No)? {
+            return Err(Self::same_file_error(src, dest));
+        }
+
+        let target = fs::read_link(src)?;
+        match fs::symlink_metadata(dest) {
+            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
                 return Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
                     "destination is an existing directory",
                 ));
             }
-            fs::remove_file(dest)?;
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return create_symlink(&target, dest, src);
+            }
+            Err(error) => return Err(error),
         }
 
-        let target = fs::read_link(src)?;
-        create_symlink(&target, dest, src)
+        let staged_path = unique_sibling_path(dest, "copy")?;
+        create_symlink(&target, &staged_path, src)?;
+        match replace_file(&staged_path, dest) {
+            Ok(warning) => {
+                if let Some(warning) = warning {
+                    eprintln!(
+                        "cp: warning: copied '{}', but old backup '{}' could not be removed: {}",
+                        dest.display(),
+                        warning.backup_path.display(),
+                        warning.error
+                    );
+                }
+                Ok(())
+            }
+            Err(error) => {
+                let _ = fs::remove_file(&staged_path);
+                Err(error)
+            }
+        }
+    }
+
+    fn same_file_error(src: &Path, dest: &Path) -> io::Error {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "'{}' and '{}' are the same file",
+                src.display(),
+                dest.display()
+            ),
+        )
     }
 
     fn ensure_destination_outside_source(src: &Path, dest: &Path) -> io::Result<()> {

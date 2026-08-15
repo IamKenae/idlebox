@@ -1,6 +1,10 @@
-use crate::core::Applet;
+use crate::core::{
+    file_ops::{same_file, FollowSymlinks},
+    Applet,
+};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::path::Path;
 
 pub struct UniqApplet;
 
@@ -77,8 +81,19 @@ impl Applet for UniqApplet {
 
         let input = operands[0];
         let output = operands[1];
-        if input == output && input.is_some_and(|path| path != "-") {
-            return Err("uniq: input and output must be different files".into());
+        if let (Some(input_path), Some(output_path)) = (input, output) {
+            if input_path != "-"
+                && output_path != "-"
+                && (input_path == output_path
+                    || same_file(
+                        Path::new(input_path),
+                        Path::new(output_path),
+                        FollowSymlinks::Yes,
+                    )
+                    .map_err(|error| format!("uniq: cannot compare input and output: {error}"))?)
+            {
+                return Err("uniq: input and output must be different files".into());
+            }
         }
 
         if let Some(path) = output.filter(|path| *path != "-") {
