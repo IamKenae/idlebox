@@ -189,11 +189,7 @@ fn get_uname_info() -> Result<UtsName, Box<dyn std::error::Error>> {
 
 #[cfg(not(unix))]
 fn get_uname_info_fallback() -> UtsName {
-    let sysname = if cfg!(windows) {
-        "Windows"
-    } else {
-        "Unknown"
-    };
+    let sysname = if cfg!(windows) { "Windows" } else { "Unknown" };
 
     let nodename = std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
@@ -245,7 +241,8 @@ extern "C" {
 
 #[cfg(target_os = "linux")]
 fn c_buf_to_string(buf: &[i8; 65]) -> String {
-    let bytes: Vec<u8> = buf.iter()
+    let bytes: Vec<u8> = buf
+        .iter()
         .take_while(|&&b| b != 0)
         .map(|&b| b as u8)
         .collect();
@@ -254,7 +251,8 @@ fn c_buf_to_string(buf: &[i8; 65]) -> String {
 
 #[cfg(target_os = "macos")]
 fn c_buf_to_string(buf: &[i8; 256]) -> String {
-    let bytes: Vec<u8> = buf.iter()
+    let bytes: Vec<u8> = buf
+        .iter()
         .take_while(|&&b| b != 0)
         .map(|&b| b as u8)
         .collect();

@@ -72,7 +72,10 @@ impl Applet for LnApplet {
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| src.to_string());
-                Path::new(target).join(&src_name).to_string_lossy().to_string()
+                Path::new(target)
+                    .join(&src_name)
+                    .to_string_lossy()
+                    .to_string()
             } else {
                 target.to_string()
             };
@@ -83,8 +86,11 @@ impl Applet for LnApplet {
                 if force {
                     let _ = fs::remove_file(link);
                 } else {
-                    eprintln!("ln: failed to create {} link '{}': File exists",
-                        if symbolic { "symbolic" } else { "hard" }, link_path);
+                    eprintln!(
+                        "ln: failed to create {} link '{}': File exists",
+                        if symbolic { "symbolic" } else { "hard" },
+                        link_path
+                    );
                     failed = true;
                     continue;
                 }
@@ -97,13 +103,22 @@ impl Applet for LnApplet {
             };
 
             if let Err(e) = result {
-                eprintln!("ln: failed to create {} link '{}' -> '{}': {}",
-                    if symbolic { "symbolic" } else { "hard" }, link_path, src, e);
+                eprintln!(
+                    "ln: failed to create {} link '{}' -> '{}': {}",
+                    if symbolic { "symbolic" } else { "hard" },
+                    link_path,
+                    src,
+                    e
+                );
                 failed = true;
             }
         }
 
-        if failed { Ok(1) } else { Ok(0) }
+        if failed {
+            Ok(1)
+        } else {
+            Ok(0)
+        }
     }
 
     fn help(&self) {
@@ -135,5 +150,8 @@ fn create_symlink(src: &str, dst: &Path) -> std::io::Result<()> {
 
 #[cfg(not(any(unix, windows)))]
 fn create_symlink(_src: &str, _dst: &Path) -> std::io::Result<()> {
-    Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "symlinks not supported"))
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "symlinks not supported",
+    ))
 }

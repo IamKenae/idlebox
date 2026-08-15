@@ -89,7 +89,13 @@ fn evaluate(args: &[String]) -> i32 {
     }
 
     match parse_expr(args) {
-        Ok(val) => if val { 0 } else { 1 },
+        Ok(val) => {
+            if val {
+                0
+            } else {
+                1
+            }
+        }
         Err(_) => 2,
     }
 }
