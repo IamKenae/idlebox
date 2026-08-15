@@ -37,6 +37,107 @@ fn assert_command_success(output: &std::process::Output, operation: &str) {
     );
 }
 
+fn archive_test_dir(name: &str) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "idlebox_test_archive_{}_{}",
+        name,
+        std::process::id()
+    ))
+}
+
+fn append_u16(bytes: &mut Vec<u8>, value: u16) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+fn append_u32(bytes: &mut Vec<u8>, value: u32) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+fn write_zip_fixture(path: &Path, entries: &[(&str, &[u8], u16)]) {
+    struct Record {
+        name: Vec<u8>,
+        crc: u32,
+        compressed_size: u32,
+        uncompressed_size: u32,
+        method: u16,
+        local_offset: u32,
+    }
+
+    let mut archive = Vec::new();
+    let mut records = Vec::new();
+
+    for &(name, data, method) in entries {
+        let compressed = match method {
+            0 => data.to_vec(),
+            8 => {
+                let mut encoder =
+                    flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+                encoder.write_all(data).unwrap();
+                encoder.finish().unwrap()
+            }
+            _ => panic!("unsupported fixture compression method"),
+        };
+        let name = name.as_bytes().to_vec();
+        let record = Record {
+            name: name.clone(),
+            crc: crc32fast::hash(data),
+            compressed_size: compressed.len().try_into().unwrap(),
+            uncompressed_size: data.len().try_into().unwrap(),
+            method,
+            local_offset: archive.len().try_into().unwrap(),
+        };
+
+        append_u32(&mut archive, 0x0403_4b50);
+        append_u16(&mut archive, 20);
+        append_u16(&mut archive, 0x0800);
+        append_u16(&mut archive, method);
+        append_u16(&mut archive, 0);
+        append_u16(&mut archive, 0);
+        append_u32(&mut archive, record.crc);
+        append_u32(&mut archive, record.compressed_size);
+        append_u32(&mut archive, record.uncompressed_size);
+        append_u16(&mut archive, name.len().try_into().unwrap());
+        append_u16(&mut archive, 0);
+        archive.extend_from_slice(&name);
+        archive.extend_from_slice(&compressed);
+        records.push(record);
+    }
+
+    let central_offset: u32 = archive.len().try_into().unwrap();
+    for record in &records {
+        append_u32(&mut archive, 0x0201_4b50);
+        append_u16(&mut archive, 20);
+        append_u16(&mut archive, 20);
+        append_u16(&mut archive, 0x0800);
+        append_u16(&mut archive, record.method);
+        append_u16(&mut archive, 0);
+        append_u16(&mut archive, 0);
+        append_u32(&mut archive, record.crc);
+        append_u32(&mut archive, record.compressed_size);
+        append_u32(&mut archive, record.uncompressed_size);
+        append_u16(&mut archive, record.name.len().try_into().unwrap());
+        append_u16(&mut archive, 0);
+        append_u16(&mut archive, 0);
+        append_u16(&mut archive, 0);
+        append_u16(&mut archive, 0);
+        append_u32(&mut archive, 0);
+        append_u32(&mut archive, record.local_offset);
+        archive.extend_from_slice(&record.name);
+    }
+    let central_size = u32::try_from(archive.len()).unwrap() - central_offset;
+
+    append_u32(&mut archive, 0x0605_4b50);
+    append_u16(&mut archive, 0);
+    append_u16(&mut archive, 0);
+    append_u16(&mut archive, records.len().try_into().unwrap());
+    append_u16(&mut archive, records.len().try_into().unwrap());
+    append_u32(&mut archive, central_size);
+    append_u32(&mut archive, central_offset);
+    append_u16(&mut archive, 0);
+
+    fs::write(path, archive).unwrap();
+}
+
 #[test]
 fn test_echo_basic() {
     let output = idlebox_command()
@@ -153,6 +254,8 @@ fn test_list_applets() {
     assert!(stdout.contains("find"));
     assert!(stdout.contains("free"));
     assert!(stdout.contains("grep"));
+    assert!(stdout.contains("gunzip"));
+    assert!(stdout.contains("gzip"));
     assert!(stdout.contains("head"));
     assert!(stdout.contains("id"));
     assert!(stdout.contains("kill"));
@@ -172,6 +275,7 @@ fn test_list_applets() {
     assert!(stdout.contains("sleep"));
     assert!(stdout.contains("su"));
     assert!(stdout.contains("tail"));
+    assert!(stdout.contains("tar"));
     assert!(stdout.contains("tee"));
     assert!(stdout.contains("test"));
     assert!(stdout.contains("touch"));
@@ -179,9 +283,11 @@ fn test_list_applets() {
     assert!(stdout.contains("true"));
     assert!(stdout.contains("uname"));
     assert!(stdout.contains("uniq"));
+    assert!(stdout.contains("unzip"));
     assert!(stdout.contains("uptime"));
     assert!(stdout.contains("wc"));
     assert!(stdout.contains("whoami"));
+    assert!(stdout.contains("zcat"));
 }
 
 #[test]
@@ -422,15 +528,15 @@ fn test_install_creates_launchers() {
     assert_command_success(&output, "installing applet launchers");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Installed:"));
-    assert!(stdout.contains("47 installed, 0 updated, 0 already installed"));
+    assert!(stdout.contains("52 installed, 0 updated, 0 already installed"));
     assert!(stdout.contains("Tip: add"));
 
     for applet in &[
         "basename", "cat", "chgrp", "chmod", "chown", "cp", "cut", "df", "dirname", "du", "echo",
-        "env", "expr", "false", "find", "free", "grep", "head", "id", "kill", "ln", "ls", "mkdir",
-        "mv", "ps", "printf", "printenv", "pwd", "readlink", "realpath", "relax", "rm", "sleep",
-        "sort", "su", "tail", "tee", "test", "[", "touch", "tr", "true", "uname", "uniq", "uptime",
-        "wc", "whoami",
+        "env", "expr", "false", "find", "free", "grep", "gunzip", "gzip", "head", "id", "kill",
+        "ln", "ls", "mkdir", "mv", "ps", "printf", "printenv", "pwd", "readlink", "realpath",
+        "relax", "rm", "sleep", "sort", "su", "tail", "tar", "tee", "test", "[", "touch", "tr",
+        "true", "uname", "uniq", "unzip", "uptime", "wc", "whoami", "zcat",
     ] {
         let launcher = installed_applet_path(&tmp_dir, applet);
         assert!(launcher.exists(), "launcher for {} should exist", applet);
@@ -595,7 +701,7 @@ fn test_install_rerun_skips_current_launchers() {
     let second = run_install(&tmp_dir);
     assert_command_success(&second, "rerunning an installation");
     let stdout = String::from_utf8_lossy(&second.stdout);
-    assert!(stdout.contains("0 installed, 0 updated, 47 already installed"));
+    assert!(stdout.contains("0 installed, 0 updated, 52 already installed"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -4178,5 +4284,305 @@ fn test_df_does_not_modify_probe_file() {
 
     assert!(output.status.success());
     assert_eq!(fs::read_to_string(&probe).unwrap(), "keep-me");
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_gzip_gunzip_and_zcat_file_workflow() {
+    let tmp_dir = archive_test_dir("gzip_files");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    let input = tmp_dir.join("payload.txt");
+    let compressed = tmp_dir.join("payload.txt.gz");
+    let original = b"archive payload\nwith a second line\n";
+    fs::write(&input, original).unwrap();
+
+    let output = idlebox_command()
+        .args(["gzip", "--keep", input.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_command_success(&output, "gzip -k");
+    assert!(input.exists());
+    assert!(compressed.exists());
+
+    let zcat = idlebox_command()
+        .args(["zcat", compressed.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_command_success(&zcat, "zcat file");
+    assert_eq!(zcat.stdout, original);
+
+    let gzip_decompress = idlebox_command()
+        .args([
+            "gzip",
+            "--decompress",
+            "--to-stdout",
+            compressed.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_command_success(&gzip_decompress, "gzip -dc");
+    assert_eq!(gzip_decompress.stdout, original);
+
+    fs::remove_file(&input).unwrap();
+    let gunzip = idlebox_command()
+        .args(["gunzip", "--keep", compressed.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_command_success(&gunzip, "gunzip -k");
+    assert_eq!(fs::read(&input).unwrap(), original);
+    assert!(compressed.exists());
+
+    fs::write(&input, b"new payload").unwrap();
+    let refused = idlebox_command()
+        .args(["gzip", input.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    assert_eq!(fs::read(&input).unwrap(), b"new payload");
+
+    let forced = idlebox_command()
+        .args(["gzip", "--force", input.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_command_success(&forced, "gzip -f");
+    assert!(!input.exists());
+
+    fs::write(&input, b"stale output").unwrap();
+    let forced_gunzip = idlebox_command()
+        .args(["gunzip", "-kf", compressed.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_command_success(&forced_gunzip, "gunzip -kf");
+    assert_eq!(fs::read(&input).unwrap(), b"new payload");
+    assert!(compressed.exists());
+
+    let gunzip_stdout = idlebox_command()
+        .args(["gunzip", "--to-stdout", compressed.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_command_success(&gunzip_stdout, "gunzip -c");
+    assert_eq!(gunzip_stdout.stdout, b"new payload");
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_gzip_and_zcat_standard_streams() {
+    let payload = b"streamed gzip payload\0with binary data\xff";
+    let mut gzip = idlebox_command()
+        .args(["gzip", "-c"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    gzip.stdin.as_mut().unwrap().write_all(payload).unwrap();
+    let compressed = gzip.wait_with_output().unwrap();
+    assert_command_success(&compressed, "gzip stdin");
+    assert!(compressed.stdout.starts_with(&[0x1f, 0x8b]));
+
+    let mut zcat = idlebox_command()
+        .arg("zcat")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    zcat.stdin
+        .as_mut()
+        .unwrap()
+        .write_all(&compressed.stdout)
+        .unwrap();
+    let decompressed = zcat.wait_with_output().unwrap();
+    assert_command_success(&decompressed, "zcat stdin");
+    assert_eq!(decompressed.stdout, payload);
+}
+
+#[test]
+fn test_tar_create_list_extract_and_gzip_modes() {
+    let tmp_dir = archive_test_dir("tar_roundtrip");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    let input = tmp_dir.join("input");
+    fs::create_dir_all(input.join("nested")).unwrap();
+    fs::write(input.join("root.txt"), b"root file\n").unwrap();
+    fs::write(input.join("nested/data.bin"), b"nested\0data\xff").unwrap();
+    let archive = tmp_dir.join("bundle.tar");
+
+    let create = idlebox_command()
+        .current_dir(&tmp_dir)
+        .args(["tar", "-cvf", archive.to_str().unwrap(), "input"])
+        .output()
+        .unwrap();
+    assert_command_success(&create, "tar -cvf");
+    assert!(String::from_utf8_lossy(&create.stdout).contains("input"));
+
+    let list = idlebox_command()
+        .args(["tar", "-tf", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_command_success(&list, "tar -tf");
+    let listing = String::from_utf8_lossy(&list.stdout);
+    assert!(listing.contains("input/root.txt"));
+    assert!(listing.contains("input/nested/data.bin"));
+
+    let long_list = idlebox_command()
+        .args(["tar", "--list", "--file", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_command_success(&long_list, "tar --list --file");
+    assert_eq!(long_list.stdout, list.stdout);
+
+    let extracted = tmp_dir.join("extracted");
+    fs::create_dir(&extracted).unwrap();
+    let extract = idlebox_command()
+        .args([
+            "tar",
+            "-xvf",
+            archive.to_str().unwrap(),
+            "-C",
+            extracted.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_command_success(&extract, "tar -xvf");
+    assert_eq!(
+        fs::read(extracted.join("input/nested/data.bin")).unwrap(),
+        b"nested\0data\xff"
+    );
+
+    let gzip_archive = tmp_dir.join("bundle.tar.gz");
+    let create_gzip = idlebox_command()
+        .current_dir(&tmp_dir)
+        .args(["tar", "-czvf", gzip_archive.to_str().unwrap(), "input"])
+        .output()
+        .unwrap();
+    assert_command_success(&create_gzip, "tar -czvf");
+
+    let list_gzip = idlebox_command()
+        .args(["tar", "-tzf", gzip_archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_command_success(&list_gzip, "tar -tzf");
+    assert!(String::from_utf8_lossy(&list_gzip.stdout).contains("input/root.txt"));
+
+    let extracted_gzip = tmp_dir.join("extracted-gzip");
+    fs::create_dir(&extracted_gzip).unwrap();
+    let extract_gzip = idlebox_command()
+        .args([
+            "tar",
+            "-xzvf",
+            gzip_archive.to_str().unwrap(),
+            "-C",
+            extracted_gzip.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_command_success(&extract_gzip, "tar -xzvf");
+    assert_eq!(
+        fs::read(extracted_gzip.join("input/root.txt")).unwrap(),
+        b"root file\n"
+    );
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_unzip_list_extract_and_overwrite() {
+    let tmp_dir = archive_test_dir("unzip_roundtrip");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    let archive = tmp_dir.join("fixture.zip");
+    write_zip_fixture(
+        &archive,
+        &[
+            ("stored.txt", b"stored entry\n", 0),
+            ("nested/deflated.txt", b"deflated entry\n", 8),
+        ],
+    );
+
+    let list = idlebox_command()
+        .args(["unzip", "--list", archive.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_command_success(&list, "unzip --list");
+    let listing = String::from_utf8_lossy(&list.stdout);
+    assert!(listing.contains("stored.txt"));
+    assert!(listing.contains("nested/deflated.txt"));
+
+    let output_dir = tmp_dir.join("output");
+    let extract = idlebox_command()
+        .args([
+            "unzip",
+            archive.to_str().unwrap(),
+            "-d",
+            output_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_command_success(&extract, "unzip -d");
+    assert_eq!(
+        fs::read(output_dir.join("stored.txt")).unwrap(),
+        b"stored entry\n"
+    );
+    assert_eq!(
+        fs::read(output_dir.join("nested/deflated.txt")).unwrap(),
+        b"deflated entry\n"
+    );
+
+    fs::write(output_dir.join("stored.txt"), b"preserve me").unwrap();
+    let refused = idlebox_command()
+        .args([
+            "unzip",
+            archive.to_str().unwrap(),
+            "-d",
+            output_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!refused.status.success());
+    assert_eq!(
+        fs::read(output_dir.join("stored.txt")).unwrap(),
+        b"preserve me"
+    );
+
+    let overwrite = idlebox_command()
+        .args([
+            "unzip",
+            "--overwrite",
+            archive.to_str().unwrap(),
+            "-d",
+            output_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_command_success(&overwrite, "unzip --overwrite");
+    assert_eq!(
+        fs::read(output_dir.join("stored.txt")).unwrap(),
+        b"stored entry\n"
+    );
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_unzip_rejects_parent_path_escape() {
+    let tmp_dir = archive_test_dir("unzip_escape");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    let archive = tmp_dir.join("escape.zip");
+    write_zip_fixture(&archive, &[("../escaped.txt", b"must not escape", 0)]);
+    let output_dir = tmp_dir.join("output");
+
+    let output = idlebox_command()
+        .args([
+            "unzip",
+            archive.to_str().unwrap(),
+            "-d",
+            output_dir.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(!tmp_dir.join("escaped.txt").exists());
+
     let _ = fs::remove_dir_all(&tmp_dir);
 }

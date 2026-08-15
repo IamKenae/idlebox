@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
-[![Linux x86_64 ELF 体积](https://img.shields.io/badge/size-~435_KiB-green.svg)](https://github.com/IamKenae/idlebox/actions/workflows/size.yml)
+[![Linux x86_64 ELF 体积](https://img.shields.io/badge/size-~602_KiB-green.svg)](https://github.com/IamKenae/idlebox/actions/workflows/size.yml)
 
 [🇬🇧 English](README.md)
 
@@ -16,7 +16,7 @@
 
 ## 简介
 
-**空闲盒 (IdleBox)** 是一个受 BusyBox 启发的独立、轻量、高颜值多调用工具箱，使用纯 Rust 编写，零外部依赖。
+**空闲盒 (IdleBox)** 是一个受 BusyBox 启发的独立、轻量、高颜值多调用工具箱，采用 Rust 编写，仅保留少量纯 Rust 依赖，不捆绑 C 库。
 
 ### 设计理念
 
@@ -28,7 +28,7 @@ BusyBox 承载了嵌入式 Linux 的半壁江山。IdleBox 希望以现代语言
 
 ### 当前开发原则
 
-1. **守住轻量基础** — 优先维持单二进制、零外部依赖、模块化和低运行开销
+1. **守住轻量基础** — 优先维持单二进制、最小纯 Rust 依赖集、模块化和低运行开销
 2. **先优化项目本身** — 首先改善正确性、一致性、基础功能、跨平台体验和可维护性
 3. **渐进扩展兼容** — 优先支持日常高频用法，再逐步覆盖 POSIX、BusyBox 和 GNU 的更多行为
 4. **以数据决定取舍** — 通过体积、启动时间、吞吐量和测试结果评估功能与抽象的成本
@@ -37,7 +37,7 @@ BusyBox 承载了嵌入式 Linux 的半壁江山。IdleBox 希望以现代语言
 
 ## 特性
 
-- **零依赖** — 仅使用 Rust 标准库，不引入任何第三方 crate
+- **纯 Rust 压缩** — DEFLATE 与 Gzip 使用 `flate2` 的 `miniz_oxide` Rust 后端，不依赖 zlib 或其他 C 压缩库
 - **体积优先** — Release 配置针对体积优化；实际大小随目标平台和工具链变化
 - **渐进兼容** — 优先覆盖常用 Unix/POSIX 工作流，并逐步扩展 BusyBox/GNU 兼容行为
 - **跨平台** — 支持 Linux、macOS 和 Windows
@@ -51,9 +51,9 @@ BusyBox 承载了嵌入式 Linux 的半壁江山。IdleBox 希望以现代语言
 
 | 平台 | 状态 | 说明 |
 |------|------|------|
-| Linux | 完整支持 | 全部 47 个 Applet |
-| macOS | 完整支持 | 全部 47 个 Applet |
-| Windows | 部分支持 | 30+ 个 Applet 完整支持；Unix 专属 Applet（chmod, chown, chgrp, id, su）优雅降级 |
+| Linux | 完整支持 | 全部 52 个 Applet |
+| macOS | 完整支持 | 全部 52 个 Applet |
+| Windows | 部分支持 | 35+ 个 Applet 完整支持；Unix 专属 Applet（chmod, chown, chgrp, id, su）优雅降级 |
 
 ---
 
@@ -93,6 +93,11 @@ BusyBox 承载了嵌入式 Linux 的半壁江山。IdleBox 希望以现代语言
 | `realpath` | 打印规范化绝对路径 | 规范化已有路径、静默诊断、NUL 分隔输出 |
 | `sleep` | 暂停指定时长 | 小数时长、`s`/`m`/`h`/`d` 后缀、多个时长相加 |
 | `tee` | 将 stdin 同时复制到文件和 stdout | 多输出文件、`-a` 追加、`-i` 忽略中断，下游关闭后继续写文件 |
+| `tar` | 创建、查看与解包归档 | POSIX ustar 标头、目录递归、`-f` 归档、`-z` Gzip 流、`-C` 解包目录与安全路径校验 |
+| `gzip` | 压缩或解压 Gzip 流 | 文件与 stdin、`-d`/`-k`/`-f`/`-c`、失败安全输出、纯 Rust DEFLATE |
+| `gunzip` | 解压 Gzip 文件 | 与 `gzip -d` 一致的文件命名和 `-k`/`-f`/`-c` 行为 |
+| `zcat` | 将 Gzip 数据解压到 stdout | 读取 `.gz` 文件或 stdin，不修改源文件 |
+| `unzip` | 查看与解压 ZIP 归档 | Stored 与 Deflate 条目、`-l`、`-o`、`-d`、CRC 校验与 Zip Slip 防护 |
 | `uname` | 打印系统信息 | POSIX `uname()` FFI、`-a` 全部信息、`-s`/`-n`/`-r`/`-v`/`-m` 单独字段 |
 | `test` / `[` | 评估条件表达式 | POSIX 兼容的 `test` 和 `[` 两种形态、文件/字符串/数值测试、逻辑运算符 |
 | `expr` | 评估表达式并输出结果 | 算术、比较、逻辑、字符串操作；递归下降解析器 |
@@ -136,6 +141,9 @@ idlebox printf '%s = %04d\n' answer 42
 idlebox env MODE=demo idlebox printenv MODE
 idlebox cat -n README.md
 idlebox ls --color=auto -lah
+idlebox tar -czf source.tar.gz src
+idlebox gzip -k report.txt
+idlebox unzip archive.zip -d output
 
 # 查看命令帮助与版本信息
 idlebox --help

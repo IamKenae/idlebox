@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
-[![Linux x86_64 ELF size](https://img.shields.io/badge/size-~435_KiB-green.svg)](https://github.com/IamKenae/idlebox/actions/workflows/size.yml)
+[![Linux x86_64 ELF size](https://img.shields.io/badge/size-~602_KiB-green.svg)](https://github.com/IamKenae/idlebox/actions/workflows/size.yml)
 
 [🇨🇳 中文文档](README-zh.md)
 
@@ -16,7 +16,7 @@
 
 ## Introduction
 
-**IdleBox** is an independent, lightweight, and visually polished multi-call toolbox inspired by BusyBox, written in pure Rust with zero external dependencies.
+**IdleBox** is an independent, lightweight, and visually polished multi-call toolbox inspired by BusyBox, written in Rust with a deliberately small pure-Rust dependency footprint and no bundled C libraries.
 
 ### Design Philosophy
 
@@ -28,7 +28,7 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 
 ### Current Development Principles
 
-1. **Protect the lightweight foundation** — Prefer a single binary, zero external dependencies, modularity, and low runtime overhead
+1. **Protect the lightweight foundation** — Prefer a single binary, a minimal pure-Rust dependency set, modularity, and low runtime overhead
 2. **Optimize the project first** — Improve correctness, consistency, core functionality, cross-platform behavior, and maintainability
 3. **Expand compatibility progressively** — Cover common workflows first, then add more POSIX, BusyBox, and GNU behavior
 4. **Make evidence-based trade-offs** — Evaluate features and abstractions using binary size, startup time, throughput, and test results
@@ -37,7 +37,7 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 
 ## Features
 
-- **Zero Dependencies** — Pure Rust standard library, no third-party crates
+- **Pure-Rust Compression** — DEFLATE and Gzip use `flate2` with the `miniz_oxide` Rust backend; no zlib or other C compression library
 - **Size-conscious** — Release settings prioritize a compact binary; actual size varies by target and toolchain
 - **Progressive Compatibility** — Covers common Unix/POSIX workflows first and incrementally expands BusyBox/GNU behavior
 - **Cross-Platform** — Supports Linux, macOS, and Windows
@@ -51,9 +51,9 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 
 | Platform | Status | Notes |
 |----------|--------|-------|
-| Linux | Full | All 47 applets supported |
-| macOS | Full | All 47 applets supported |
-| Windows | Partial | 30+ applets fully supported; Unix-only applets (chmod, chown, chgrp, id, su) gracefully degrade |
+| Linux | Full | All 52 applets supported |
+| macOS | Full | All 52 applets supported |
+| Windows | Partial | 35+ applets fully supported; Unix-only applets (chmod, chown, chgrp, id, su) gracefully degrade |
 
 ---
 
@@ -93,6 +93,11 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 | `realpath` | Print canonical absolute paths | Existing-path canonicalization, quiet diagnostics, NUL-separated output |
 | `sleep` | Pause for a specified duration | Fractional values, `s`/`m`/`h`/`d` suffixes, sums multiple intervals |
 | `tee` | Copy stdin to files and stdout | Multiple output files, `-a` append, `-i` ignore interrupts, continues file output after a closed pipe |
+| `tar` | Create, list, and extract tape archives | POSIX ustar headers, recursive directories, `-f` archives, `-z` Gzip streams, `-C` extraction directory, safe path validation |
+| `gzip` | Compress or decompress Gzip streams | File and stdin operation, `-d`/`-k`/`-f`/`-c`, failure-safe output handling, pure-Rust DEFLATE |
+| `gunzip` | Decompress Gzip files | `gzip -d`-compatible file naming and `-k`/`-f`/`-c` behavior |
+| `zcat` | Decompress Gzip data to stdout | Reads `.gz` files or stdin without modifying source files |
+| `unzip` | List and extract ZIP archives | Stored and Deflate entries, `-l`, `-o`, `-d`, CRC validation, Zip Slip protection |
 | `uname` | Print system information | POSIX `uname()` FFI, `-a` all, `-s`/`-n`/`-r`/`-v`/`-m` individual fields |
 | `test` / `[` | Evaluate conditional expressions | POSIX-compatible `test` and `[` forms, file/string/numeric tests, logical operators |
 | `expr` | Evaluate expressions and print result | Arithmetic, comparison, logical, string ops; recursive descent parser |
@@ -136,6 +141,9 @@ idlebox printf '%s = %04d\n' answer 42
 idlebox env MODE=demo idlebox printenv MODE
 idlebox cat -n README.md
 idlebox ls --color=auto -lah
+idlebox tar -czf source.tar.gz src
+idlebox gzip -k report.txt
+idlebox unzip archive.zip -d output
 
 # Discover commands and version information
 idlebox --help
