@@ -4624,6 +4624,25 @@ fn run_tree(args: &[&str]) -> std::process::Output {
     command.output().expect("failed to execute process")
 }
 
+/// The account name and group name the fixtures will be owned by, resolved the
+/// same way `tree` resolves them so the metadata columns can be matched exactly.
+#[cfg(unix)]
+fn tree_expected_owner() -> (String, String) {
+    let user = idlebox_command()
+        .arg("whoami")
+        .output()
+        .expect("failed to execute process");
+    let group = idlebox_command()
+        .args(["id", "-gn"])
+        .output()
+        .expect("failed to execute process");
+
+    (
+        String::from_utf8_lossy(&user.stdout).trim().to_string(),
+        String::from_utf8_lossy(&group.stdout).trim().to_string(),
+    )
+}
+
 #[test]
 fn test_tree_basic() {
     let tmp_dir = tree_fixture("basic");
@@ -4640,7 +4659,8 @@ fn test_tree_basic() {
     assert!(stdout.contains("deep.txt"));
     assert!(stdout.contains("x.md"));
     assert!(!stdout.contains(".hidden.txt"));
-    assert!(stdout.contains("3 directories, 4 files"));
+    // The root directory counts too, the way upstream's emit_tree() does.
+    assert!(stdout.contains("4 directories, 4 files"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -4653,7 +4673,7 @@ fn test_tree_all_shows_hidden() {
     assert!(hidden.status.success());
     let stdout = String::from_utf8_lossy(&hidden.stdout);
     assert!(stdout.contains(".hidden.txt"));
-    assert!(stdout.contains("3 directories, 5 files"));
+    assert!(stdout.contains("4 directories, 5 files"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -4669,7 +4689,7 @@ fn test_tree_max_depth() {
     assert!(stdout.contains("b.txt"));
     assert!(!stdout.contains("nested.rs"));
     assert!(!stdout.contains("deep.txt"));
-    assert!(stdout.contains("2 directories, 1 file"));
+    assert!(stdout.contains("3 directories, 1 file"));
 
     // A value-taking option can end a bundle and read the next argument...
     let bundled = run_tree(&["-aL", "1", tmp_dir.to_str().unwrap()]);
@@ -4717,7 +4737,7 @@ fn test_tree_dirs_only() {
     assert!(stdout.contains("z_dir"));
     assert!(!stdout.contains("b.txt"));
     assert!(!stdout.contains("nested.rs"));
-    assert!(stdout.contains("3 directories"));
+    assert!(stdout.contains("4 directories"));
     assert!(!stdout.contains("files"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -4735,7 +4755,7 @@ fn test_tree_patterns() {
     assert!(stdout.contains("a_dir"));
     assert!(!stdout.contains("b.txt"));
     assert!(!stdout.contains("x.md"));
-    assert!(stdout.contains("3 directories, 1 file"));
+    assert!(stdout.contains("4 directories, 1 file"));
 
     let exclude = run_tree(&["-I", "z_dir", tmp_dir.to_str().unwrap()]);
     assert!(exclude.status.success());
@@ -4743,7 +4763,7 @@ fn test_tree_patterns() {
     assert!(!stdout.contains("z_dir"));
     assert!(!stdout.contains("x.md"));
     assert!(stdout.contains("b.txt"));
-    assert!(stdout.contains("2 directories, 3 files"));
+    assert!(stdout.contains("3 directories, 3 files"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -4865,16 +4885,84 @@ fn test_tree_classify_and_size() {
     let _ = fs::remove_dir_all(&tmp_dir);
 }
 
+/// Every column `-p -u -g -D` asks for has to actually appear: asserting only
+/// the permission prefix would pass even if the other three vanished.
 #[test]
 #[cfg(unix)]
 fn test_tree_metadata_columns() {
+    use std::time::{Duration, SystemTime};
+
     let tmp_dir = tree_fixture("metadata");
+
+    // Two fixed timestamps, one on each side of the six-month cutoff that
+    // decides between a clock time and a year.
+    let old = tmp_dir.join("old.txt");
+    fs::write(&old, "old").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&old)
+        .unwrap()
+        .set_modified(SystemTime::UNIX_EPOCH)
+        .unwrap();
+
+    let recent = tmp_dir.join("recent.txt");
+    fs::write(&recent, "recent").unwrap();
+    let recent_at = SystemTime::now() - Duration::from_secs(3600);
+    fs::File::options()
+        .write(true)
+        .open(&recent)
+        .unwrap()
+        .set_modified(recent_at)
+        .unwrap();
+
+    let (user, group) = tree_expected_owner();
 
     let output = run_tree(&["-p", "-u", "-g", "-D", "-L", "1", tmp_dir.to_str().unwrap()]);
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("[drwx"));
     assert!(stdout.contains("[-rw-"));
+
+    // All four columns live in one bracketed group, in permission, user, group,
+    // time order.
+    let line = stdout
+        .lines()
+        .find(|line| line.ends_with("old.txt"))
+        .unwrap_or_else(|| panic!("no line for old.txt in {}", stdout));
+    let columns = line
+        .split_once('[')
+        .and_then(|(_, rest)| rest.split_once(']'))
+        .map(|(columns, _)| columns)
+        .unwrap_or_else(|| panic!("unterminated metadata group: {}", line));
+    assert!(
+        columns.starts_with(&format!("-rw-r--r-- {:<8} {:<8} ", user, group)),
+        "expected permissions, user and group columns in {:?}",
+        columns
+    );
+    // A timestamp older than six months is shown with its year, as `ls -l` and
+    // upstream `tree` both do.
+    assert!(
+        columns.ends_with("Jan  1  1970"),
+        "expected a year for an epoch mtime in {:?}",
+        columns
+    );
+
+    // Something recent keeps the HH:MM form instead.
+    let line = stdout
+        .lines()
+        .find(|line| line.ends_with("recent.txt"))
+        .unwrap_or_else(|| panic!("no line for recent.txt in {}", stdout));
+    let columns = line
+        .split_once('[')
+        .and_then(|(_, rest)| rest.split_once(']'))
+        .map(|(columns, _)| columns)
+        .unwrap_or_else(|| panic!("unterminated metadata group: {}", line));
+    let time = columns.rsplit(' ').next().unwrap_or_default();
+    assert!(
+        time.len() == 5 && time.as_bytes()[2] == b':',
+        "expected a HH:MM time for a recent mtime in {:?}",
+        columns
+    );
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -4889,7 +4977,7 @@ fn test_tree_json() {
     assert!(stdout.starts_with('['));
     assert!(stdout.contains("{\"type\":\"directory\",\"name\":\"a_dir\",\"contents\":["));
     assert!(stdout.contains("{\"type\":\"file\",\"name\":\"nested.rs\"}"));
-    assert!(stdout.contains("{\"type\":\"report\",\"directories\":3,\"files\":4}"));
+    assert!(stdout.contains("{\"type\":\"report\",\"directories\":4,\"files\":4}"));
 
     let with_size = run_tree(&["-J", "-s", tmp_dir.to_str().unwrap()]);
     assert!(String::from_utf8_lossy(&with_size.stdout).contains("\"name\":\"b.txt\",\"size\":5"));
@@ -4925,7 +5013,7 @@ fn test_tree_xml() {
     assert!(stdout.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
     assert!(stdout.contains("<directory name=\"a_dir\">"));
     assert!(stdout.contains("<file name=\"nested.rs\"></file>"));
-    assert!(stdout.contains("<directories>3</directories>"));
+    assert!(stdout.contains("<directories>4</directories>"));
     assert!(stdout.contains("<files>4</files>"));
     assert!(stdout.trim_end().ends_with("</tree>"));
 
@@ -4959,7 +5047,7 @@ fn test_tree_html() {
     assert!(stdout.contains("<html>"));
     assert!(stdout.contains("<a href=\"https://example.com/files/a_dir\">a_dir</a>"));
     assert!(stdout.contains("<a href=\"https://example.com/files/a_dir/nested.rs\">nested.rs</a>"));
-    assert!(stdout.contains("<p>3 directories, 4 files</p>"));
+    assert!(stdout.contains("<p>4 directories, 4 files</p>"));
     assert!(stdout.trim_end().ends_with("</html>"));
 
     // Metadata columns reach the HTML output too, with the padding preserved.
@@ -5070,8 +5158,9 @@ fn test_tree_symlink_is_shown_but_not_followed() {
     assert!(stdout.contains("dirlink -> "));
     // Following the link would list nested.rs a second time.
     assert_eq!(stdout.matches("nested.rs").count(), 1);
-    // The link counts as a file, not as a directory.
-    assert!(stdout.contains("3 directories, 5 files"));
+    // Upstream classifies with stat() rather than lstat(), so a link to a
+    // directory counts as a directory even though the walk stops at it.
+    assert!(stdout.contains("5 directories, 4 files"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -5194,8 +5283,22 @@ fn test_tree_color() {
     assert!(stdout.contains("b.txt"));
     assert!(!stdout.contains("\x1b[1;34mb.txt"));
 
-    // -n turns it back off, and the last flag on the line wins.
-    let plain = run_tree(&["-C", "-n", "-L", "1", tmp_dir.to_str().unwrap()]);
+    // -C outranks -n whatever the order, the way upstream documents it
+    // ("-n  Turn colorization off always (-C overrides)").
+    for args in [["-C", "-n", "-L", "1"], ["-n", "-C", "-L", "1"]] {
+        let mut argv = args.to_vec();
+        argv.push(tmp_dir.to_str().unwrap());
+        let forced = run_tree(&argv);
+        assert!(forced.status.success());
+        assert!(
+            String::from_utf8_lossy(&forced.stdout).contains("\x1b[1;34ma_dir\x1b[0m"),
+            "-C must win over -n, got {:?}",
+            args
+        );
+    }
+
+    // -n on its own leaves the default plain output alone.
+    let plain = run_tree(&["-n", "-L", "1", tmp_dir.to_str().unwrap()]);
     assert!(plain.status.success());
     assert!(!String::from_utf8_lossy(&plain.stdout).contains("\x1b["));
 
@@ -5205,25 +5308,23 @@ fn test_tree_color() {
     let _ = fs::remove_dir_all(&tmp_dir);
 }
 
+/// Both `-u` and `-g` have to reach the output: asserting only the owner would
+/// pass even with the group column missing entirely.
 #[test]
 #[cfg(unix)]
 fn test_tree_user_and_group_columns() {
     let tmp_dir = tree_fixture("owner");
-
-    let expected = idlebox_command()
-        .arg("whoami")
-        .output()
-        .expect("failed to execute process");
-    let expected = String::from_utf8_lossy(&expected.stdout).trim().to_string();
-    let user = expected.as_str();
+    let (user, group) = tree_expected_owner();
 
     let output = run_tree(&["-u", "-g", "-L", "1", tmp_dir.to_str().unwrap()]);
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     // Both columns are present, padded, and inside one bracketed group.
+    let expected = format!("[{:<8} {:<8}]  ", user, group);
     assert!(
-        stdout.contains(&format!("[{:<8}", user)),
-        "missing owner in {}",
+        stdout.contains(&expected),
+        "expected {:?} in {}",
+        expected,
         stdout
     );
     for line in stdout.lines().filter(|l| l.contains("b.txt")) {
@@ -5269,8 +5370,9 @@ fn test_tree_multiple_roots() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("nested.rs"));
     assert!(stdout.contains("only.txt"));
-    // One combined report covering both roots, printed once.
-    assert!(stdout.contains("3 directories, 5 files"));
+    // One combined report covering both roots, printed once; each root counts
+    // itself, so the two contribute 4 + 1 directories.
+    assert!(stdout.contains("5 directories, 5 files"));
     assert_eq!(stdout.matches("directories,").count(), 1);
     // The roots are separated by a blank line.
     assert!(stdout.contains(&format!("\n\n{}\n", second.display())));
@@ -5290,6 +5392,404 @@ fn test_tree_output_file_error() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("cannot open output file"));
     // The directory it refused to clobber is still there.
     assert!(tmp_dir.join("b.txt").exists());
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// `-o` must never be able to destroy its own input. The report is staged next
+/// to the destination and only published once the walk has finished, so a run
+/// that overlaps its input or fails part-way leaves the original alone.
+#[test]
+fn test_tree_output_file_never_clobbers_input() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_outclobber");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    // Reporting on a file and writing the report over it at the same time.
+    let input = tmp_dir.join("input.txt");
+    fs::write(&input, "ORIGINAL").unwrap();
+    let same = run_tree(&["-o", input.to_str().unwrap(), input.to_str().unwrap()]);
+    assert_eq!(same.status.code(), Some(1));
+    assert_eq!(fs::read_to_string(&input).unwrap(), "ORIGINAL");
+    assert!(String::from_utf8_lossy(&same.stderr).contains("both an input and the output file"));
+
+    // A walk that fails must not have truncated an unrelated destination before
+    // it even started.
+    let result = tmp_dir.join("result.txt");
+    fs::write(&result, "PREVIOUS").unwrap();
+    let missing = tmp_dir.join("does-not-exist");
+    let failed = run_tree(&["-o", result.to_str().unwrap(), missing.to_str().unwrap()]);
+    assert_eq!(failed.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("tree: "));
+    // The report was still produced, but only after the walk completed.
+    let written = fs::read_to_string(&result).unwrap();
+    assert!(!written.contains("PREVIOUS"));
+    assert!(written.contains("directories,"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// The staging file `-o` writes through lives next to the destination, so it
+/// must not turn up in the tree it is recording — not even under `-a`.
+#[test]
+fn test_tree_output_file_excludes_its_own_staging_file() {
+    let tmp_dir = tree_fixture("outstaged");
+    let out_file = tmp_dir.join("tree.txt");
+
+    let output = run_tree(&[
+        "-a",
+        "-o",
+        out_file.to_str().unwrap(),
+        tmp_dir.to_str().unwrap(),
+    ]);
+
+    assert!(output.status.success());
+    let written = fs::read_to_string(&out_file).unwrap();
+    assert!(
+        !written.contains("idlebox-"),
+        "staging file listed: {}",
+        written
+    );
+    assert!(written.contains(".hidden.txt"));
+    // Nothing is left behind next to the destination.
+    let leftovers: Vec<_> = fs::read_dir(&tmp_dir)
+        .unwrap()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains("idlebox-"))
+        .collect();
+    assert!(
+        leftovers.is_empty(),
+        "staging file left behind: {:?}",
+        leftovers
+    );
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// `-J`/`-X` classify with upstream's `ftype[]` table, so a symlink is a `link`
+/// carrying its target and a socket is a `socket` — not another `file`.
+#[test]
+#[cfg(unix)]
+fn test_tree_serializes_file_types() {
+    use std::os::unix::net::UnixListener;
+
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_types");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    fs::write(tmp_dir.join("plain.txt"), "x").unwrap();
+    std::os::unix::fs::symlink("plain.txt", tmp_dir.join("alias")).unwrap();
+    let _listener = UnixListener::bind(tmp_dir.join("sock")).unwrap();
+
+    let json = run_tree(&["-J", tmp_dir.to_str().unwrap()]);
+    assert!(json.status.success());
+    let stdout = String::from_utf8_lossy(&json.stdout);
+    assert!(
+        stdout.contains(r#"{"type":"link","name":"alias","target":"plain.txt"}"#),
+        "got {}",
+        stdout
+    );
+    assert!(
+        stdout.contains(r#"{"type":"socket","name":"sock"}"#),
+        "got {}",
+        stdout
+    );
+    assert!(stdout.contains(r#"{"type":"file","name":"plain.txt"}"#));
+
+    let xml = run_tree(&["-X", tmp_dir.to_str().unwrap()]);
+    assert!(xml.status.success());
+    let stdout = String::from_utf8_lossy(&xml.stdout);
+    assert!(
+        stdout.contains(r#"<link name="alias" target="plain.txt"></link>"#),
+        "got {}",
+        stdout
+    );
+    assert!(
+        stdout.contains(r#"<socket name="sock"></socket>"#),
+        "got {}",
+        stdout
+    );
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// Upstream's `-p` schema is a numeric `mode` *plus* a symbolic `prot`; the
+/// symbolic string alone is not what a consumer parsing `mode` expects.
+#[test]
+#[cfg(unix)]
+fn test_tree_machine_permission_schema() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_modes");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    let file = tmp_dir.join("script.sh");
+    fs::write(&file, "#!/bin/sh\n").unwrap();
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o750)).unwrap();
+
+    let json = run_tree(&["-J", "-p", tmp_dir.to_str().unwrap()]);
+    assert!(json.status.success());
+    let stdout = String::from_utf8_lossy(&json.stdout);
+    assert!(
+        stdout.contains(r#""name":"script.sh","mode":"0750","prot":"-rwxr-x---""#),
+        "got {}",
+        stdout
+    );
+
+    let xml = run_tree(&["-X", "-p", tmp_dir.to_str().unwrap()]);
+    assert!(xml.status.success());
+    let stdout = String::from_utf8_lossy(&xml.stdout);
+    assert!(
+        stdout.contains(r#"name="script.sh" mode="0750" prot="-rwxr-x---""#),
+        "got {}",
+        stdout
+    );
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// `-h` reaches the JSON size as a quoted string, the way upstream's
+/// `json_fillinfo()` writes it. XML deliberately keeps raw bytes: upstream's
+/// `xml_fillinfo()` has no human-readable branch and consumers parse a number.
+#[test]
+fn test_tree_machine_size_modes() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_machinesize");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    fs::write(tmp_dir.join("small.bin"), vec![0u8; 2_048]).unwrap();
+
+    let human = run_tree(&["-J", "-h", tmp_dir.to_str().unwrap()]);
+    assert!(human.status.success());
+    let stdout = String::from_utf8_lossy(&human.stdout);
+    assert!(
+        stdout.contains(r#""name":"small.bin","size":"2.0K""#),
+        "got {}",
+        stdout
+    );
+
+    let bytes = run_tree(&["-J", "-s", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&bytes.stdout);
+    assert!(
+        stdout.contains(r#""name":"small.bin","size":2048"#),
+        "got {}",
+        stdout
+    );
+
+    let xml = run_tree(&["-X", "-h", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&xml.stdout);
+    assert!(
+        stdout.contains(r#"name="small.bin" size="2048""#),
+        "got {}",
+        stdout
+    );
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// `-d` drops the file total from the machine-readable reports too, matching the
+/// text report and upstream's `json_report()`/`xml_report()`.
+#[test]
+fn test_tree_machine_report_omits_files_with_dirs_only() {
+    let tmp_dir = tree_fixture("machinereport");
+
+    let json = run_tree(&["-J", "-d", tmp_dir.to_str().unwrap()]);
+    assert!(json.status.success());
+    let stdout = String::from_utf8_lossy(&json.stdout);
+    assert!(
+        stdout.contains(r#"{"type":"report","directories":4}"#),
+        "got {}",
+        stdout
+    );
+
+    let xml = run_tree(&["-X", "-d", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&xml.stdout);
+    assert!(stdout.contains("<directories>4</directories>"));
+    assert!(!stdout.contains("<files>"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// A Unix file name is a byte string, not text. Converting it early would swap
+/// the bytes for a replacement character, make different files print
+/// identically and point the HTML links at paths that do not exist.
+#[test]
+#[cfg(unix)]
+fn test_tree_preserves_non_utf8_names() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let raw: &[u8] = &[b'b', b'a', b'd', 0xff];
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_rawbytes");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    fs::write(tmp_dir.join(OsStr::from_bytes(raw)), "x").unwrap();
+
+    let text = run_tree(&[tmp_dir.to_str().unwrap()]);
+    assert!(text.status.success());
+    assert!(
+        text.stdout.windows(raw.len()).any(|window| window == raw),
+        "raw bytes did not survive: {:?}",
+        String::from_utf8_lossy(&text.stdout)
+    );
+
+    let html = run_tree(&["-H", "https://example.com/f", tmp_dir.to_str().unwrap()]);
+    assert!(html.status.success());
+    let stdout = String::from_utf8_lossy(&html.stdout);
+    assert!(
+        stdout.contains("href=\"https://example.com/f/bad%FF\""),
+        "got {}",
+        stdout
+    );
+    assert!(!stdout.contains("%EF%BF%BD"));
+
+    let json = run_tree(&["-J", tmp_dir.to_str().unwrap()]);
+    assert!(json.stdout.windows(raw.len()).any(|window| window == raw));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// XML 1.0 cannot spell a C0 control character at all, so a name holding one
+/// would otherwise produce a document no parser will read.
+#[test]
+#[cfg(unix)]
+fn test_tree_xml_neutralizes_control_characters() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let raw: &[u8] = &[b'c', b't', b'l', 1, b'n', b'a', b'm', b'e'];
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_xmlctl");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    fs::write(tmp_dir.join(OsStr::from_bytes(raw)), "x").unwrap();
+
+    let output = run_tree(&["-X", tmp_dir.to_str().unwrap()]);
+    assert!(output.status.success());
+    assert!(
+        !output.stdout.contains(&1u8),
+        "raw control byte reached the XML"
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("name=\"ctl?name\""));
+
+    // JSON can spell it, so there the byte survives as an escape.
+    let json = run_tree(&["-J", tmp_dir.to_str().unwrap()]);
+    assert!(String::from_utf8_lossy(&json.stdout).contains(r#""name":"ctl\u0001name""#));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// Repeating `-P`/`-I` adds to the pattern set instead of replacing it, and the
+/// patterns take the alternation and character classes real `tree` accepts.
+#[test]
+fn test_tree_pattern_sets_and_syntax() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_patternset");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    for name in ["old", "new", "other", "a.rs", "b.md", "c.txt"] {
+        fs::write(tmp_dir.join(name), "x").unwrap();
+    }
+
+    // Repeated -P keeps both patterns instead of letting the last one win.
+    let repeated = run_tree(&["-P", "old", "-P", "new", tmp_dir.to_str().unwrap()]);
+    assert!(repeated.status.success());
+    let stdout = String::from_utf8_lossy(&repeated.stdout);
+    assert!(stdout.contains("old"), "got {}", stdout);
+    assert!(stdout.contains("new"), "got {}", stdout);
+    assert!(!stdout.contains("other"));
+
+    // A single pattern can hold the alternation instead.
+    let alternation = run_tree(&["-P", "old|new", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&alternation.stdout);
+    assert!(
+        stdout.contains("old") && stdout.contains("new"),
+        "got {}",
+        stdout
+    );
+    assert!(!stdout.contains("other"));
+
+    // Character classes, ranges and negation.
+    let class = run_tree(&["-P", "[ab].*", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&class.stdout);
+    assert!(
+        stdout.contains("a.rs") && stdout.contains("b.md"),
+        "got {}",
+        stdout
+    );
+    assert!(!stdout.contains("c.txt"));
+
+    let negated = run_tree(&["-P", "[^ab]*", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&negated.stdout);
+    assert!(
+        stdout.contains("c.txt") && stdout.contains("old"),
+        "got {}",
+        stdout
+    );
+    assert!(!stdout.contains("a.rs"));
+
+    // Repeated -I removes both, and -I takes the same syntax.
+    let excluded = run_tree(&["-I", "old", "-I", "*.md", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&excluded.stdout);
+    assert!(!stdout.contains("old"));
+    assert!(!stdout.contains("b.md"));
+    assert!(stdout.contains("new") && stdout.contains("a.rs"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// A link to a directory is classified through the link, the way upstream's
+/// `getinfo()` does: `-d` keeps it and `--dirsfirst` sorts it with the
+/// directories, even though the walk never descends into it.
+#[test]
+#[cfg(unix)]
+fn test_tree_symlink_to_directory_counts_as_directory() {
+    let tmp_dir = std::env::temp_dir().join("idlebox_test_tree_dirlink");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(tmp_dir.join("real")).unwrap();
+    fs::write(tmp_dir.join("real").join("inner.txt"), "x").unwrap();
+    fs::write(tmp_dir.join("zfile.txt"), "x").unwrap();
+    std::os::unix::fs::symlink(tmp_dir.join("real"), tmp_dir.join("alink")).unwrap();
+
+    // -d keeps the link but drops the plain file.
+    let dirs_only = run_tree(&["-d", tmp_dir.to_str().unwrap()]);
+    assert!(dirs_only.status.success());
+    let stdout = String::from_utf8_lossy(&dirs_only.stdout);
+    assert!(stdout.contains("alink"), "got {}", stdout);
+    assert!(!stdout.contains("zfile.txt"));
+
+    // --dirsfirst groups it with the directories rather than the files.
+    let dirs_first = run_tree(&["--dirsfirst", "-r", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&dirs_first.stdout);
+    assert!(stdout.find("alink").unwrap() < stdout.find("zfile.txt").unwrap());
+
+    // -P still filters it, because upstream decides that exemption on lstat.
+    let filtered = run_tree(&["-P", "zfile*", tmp_dir.to_str().unwrap()]);
+    let stdout = String::from_utf8_lossy(&filtered.stdout);
+    assert!(!stdout.contains("alink"), "got {}", stdout);
+    assert!(stdout.contains("real"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// A long option accepts its value attached, the way upstream's `long_arg()`
+/// handles every `--option=VALUE`.
+#[test]
+fn test_tree_charset_attached_value() {
+    let tmp_dir = tree_fixture("charseteq");
+
+    let ascii = run_tree(&["--charset=ASCII", tmp_dir.to_str().unwrap()]);
+    assert!(ascii.status.success());
+    let stdout = String::from_utf8_lossy(&ascii.stdout);
+    assert!(stdout.contains("|--"));
+    assert!(!stdout.contains("├"));
+
+    let utf8 = run_tree(&["--charset=utf-8", tmp_dir.to_str().unwrap()]);
+    assert!(utf8.status.success());
+    assert!(String::from_utf8_lossy(&utf8.stdout).contains("├──"));
+
+    let empty = run_tree(&["--charset=", tmp_dir.to_str().unwrap()]);
+    assert_eq!(empty.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&empty.stderr).contains("requires an argument"));
+
+    let bogus = run_tree(&["--charset=BOGUS", tmp_dir.to_str().unwrap()]);
+    assert_eq!(bogus.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&bogus.stderr).contains("unsupported charset"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
