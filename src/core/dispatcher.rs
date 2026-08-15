@@ -1,26 +1,57 @@
 use crate::applets::{
-    BracketApplet, CatApplet, ChgrpApplet, ChmodApplet, ChownApplet, CpApplet, CutApplet, DfApplet,
-    DuApplet, EchoApplet, ExprApplet, FindApplet, FreeApplet, GrepApplet, HeadApplet, IdApplet,
-    KillApplet, LnApplet, LsApplet, MkdirApplet, MvApplet, PsApplet, ReadlinkApplet, RelaxApplet,
-    RmApplet, SortApplet, SuApplet, TailApplet, TestApplet, TouchApplet, TrApplet, UnameApplet,
-    UniqApplet, UptimeApplet, WcApplet, WhoamiApplet,
+    BasenameApplet, BracketApplet, CatApplet, ChgrpApplet, ChmodApplet, ChownApplet, CpApplet,
+    CutApplet, DfApplet, DirnameApplet, DuApplet, EchoApplet, EnvApplet, ExprApplet, FalseApplet,
+    FindApplet, FreeApplet, GrepApplet, HeadApplet, IdApplet, KillApplet, LnApplet, LsApplet,
+    MkdirApplet, MvApplet, PrintenvApplet, PrintfApplet, PsApplet, PwdApplet, ReadlinkApplet,
+    RealpathApplet, RelaxApplet, RmApplet, SleepApplet, SortApplet, SuApplet, TailApplet,
+    TeeApplet, TestApplet, TouchApplet, TrApplet, TrueApplet, UnameApplet, UniqApplet,
+    UptimeApplet, WcApplet, WhoamiApplet,
 };
 use crate::core::Applet;
 
 struct AppletEntry {
     applet: &'static dyn Applet,
     short_help: bool,
+    help_policy: HelpPolicy,
+}
+
+#[derive(Clone, Copy)]
+enum HelpPolicy {
+    Anywhere,
+    LeadingOptions,
+    FirstArgument,
 }
 
 impl AppletEntry {
     const fn new(applet: &'static dyn Applet, short_help: bool) -> Self {
-        Self { applet, short_help }
+        Self {
+            applet,
+            short_help,
+            help_policy: HelpPolicy::Anywhere,
+        }
+    }
+
+    const fn command(applet: &'static dyn Applet, short_help: bool) -> Self {
+        Self {
+            applet,
+            short_help,
+            help_policy: HelpPolicy::LeadingOptions,
+        }
+    }
+
+    const fn format(applet: &'static dyn Applet, short_help: bool) -> Self {
+        Self {
+            applet,
+            short_help,
+            help_policy: HelpPolicy::FirstArgument,
+        }
     }
 }
 
 // Keep registration, listing, installation, and help policy in one place. Applets
 // whose `-h` flag has command-specific meaning only accept the long help flag.
 static APPLETS: &[AppletEntry] = &[
+    AppletEntry::new(&BasenameApplet, true),
     AppletEntry::new(&CatApplet, true),
     AppletEntry::new(&ChgrpApplet, true),
     AppletEntry::new(&ChmodApplet, true),
@@ -28,9 +59,12 @@ static APPLETS: &[AppletEntry] = &[
     AppletEntry::new(&CpApplet, true),
     AppletEntry::new(&CutApplet, true),
     AppletEntry::new(&DfApplet, false),
+    AppletEntry::new(&DirnameApplet, true),
     AppletEntry::new(&DuApplet, false),
     AppletEntry::new(&EchoApplet, true),
+    AppletEntry::command(&EnvApplet, true),
     AppletEntry::new(&ExprApplet, true),
+    AppletEntry::new(&FalseApplet, true),
     AppletEntry::new(&FindApplet, true),
     AppletEntry::new(&FreeApplet, false),
     AppletEntry::new(&GrepApplet, true),
@@ -42,16 +76,23 @@ static APPLETS: &[AppletEntry] = &[
     AppletEntry::new(&MkdirApplet, true),
     AppletEntry::new(&MvApplet, true),
     AppletEntry::new(&PsApplet, false),
+    AppletEntry::format(&PrintfApplet, true),
+    AppletEntry::new(&PrintenvApplet, true),
+    AppletEntry::new(&PwdApplet, true),
     AppletEntry::new(&ReadlinkApplet, false),
+    AppletEntry::new(&RealpathApplet, true),
     AppletEntry::new(&RelaxApplet, true),
     AppletEntry::new(&RmApplet, true),
     AppletEntry::new(&SortApplet, true),
+    AppletEntry::new(&SleepApplet, true),
     AppletEntry::new(&SuApplet, true),
     AppletEntry::new(&TailApplet, true),
+    AppletEntry::new(&TeeApplet, true),
     AppletEntry::new(&TestApplet, false),
     AppletEntry::new(&BracketApplet, false),
     AppletEntry::new(&TouchApplet, true),
     AppletEntry::new(&TrApplet, true),
+    AppletEntry::new(&TrueApplet, true),
     AppletEntry::new(&UnameApplet, true),
     AppletEntry::new(&UniqApplet, true),
     AppletEntry::new(&UptimeApplet, false),
@@ -98,9 +139,23 @@ impl Dispatcher {
     }
 
     fn help_requested(entry: &AppletEntry, args: &[String]) -> bool {
-        args.iter()
-            .take_while(|arg| arg.as_str() != "--")
-            .any(|arg| arg == "--help" || (entry.short_help && arg == "-h"))
+        for (index, arg) in args.iter().enumerate() {
+            if arg == "--" {
+                break;
+            }
+            if matches!(entry.help_policy, HelpPolicy::FirstArgument) && index > 0 {
+                break;
+            }
+            if matches!(entry.help_policy, HelpPolicy::LeadingOptions)
+                && (arg == "-" || !arg.starts_with('-'))
+            {
+                break;
+            }
+            if arg == "--help" || (entry.short_help && arg == "-h") {
+                return true;
+            }
+        }
+        false
     }
 
     fn not_found(name: &str) -> Box<dyn std::error::Error> {

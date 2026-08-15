@@ -68,6 +68,9 @@ impl Applet for CatApplet {
             };
 
             if let Err(e) = result {
+                if e.kind() == io::ErrorKind::BrokenPipe {
+                    return Ok(0);
+                }
                 eprintln!("cat: {}: {}", file, e);
                 return Ok(1);
             }

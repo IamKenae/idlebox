@@ -136,6 +136,7 @@ fn test_list_applets() {
 
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("basename"));
     assert!(stdout.contains("cat"));
     assert!(stdout.contains("chgrp"));
     assert!(stdout.contains("chmod"));
@@ -143,9 +144,12 @@ fn test_list_applets() {
     assert!(stdout.contains("cp"));
     assert!(stdout.contains("cut"));
     assert!(stdout.contains("df"));
+    assert!(stdout.contains("dirname"));
     assert!(stdout.contains("du"));
     assert!(stdout.contains("echo"));
+    assert!(stdout.contains("env"));
     assert!(stdout.contains("expr"));
+    assert!(stdout.contains("false"));
     assert!(stdout.contains("find"));
     assert!(stdout.contains("free"));
     assert!(stdout.contains("grep"));
@@ -157,15 +161,22 @@ fn test_list_applets() {
     assert!(stdout.contains("mkdir"));
     assert!(stdout.contains("mv"));
     assert!(stdout.contains("ps"));
+    assert!(stdout.contains("printf"));
+    assert!(stdout.contains("printenv"));
+    assert!(stdout.contains("pwd"));
     assert!(stdout.contains("readlink"));
+    assert!(stdout.contains("realpath"));
     assert!(stdout.contains("relax"));
     assert!(stdout.contains("rm"));
     assert!(stdout.contains("sort"));
+    assert!(stdout.contains("sleep"));
     assert!(stdout.contains("su"));
     assert!(stdout.contains("tail"));
+    assert!(stdout.contains("tee"));
     assert!(stdout.contains("test"));
     assert!(stdout.contains("touch"));
     assert!(stdout.contains("tr"));
+    assert!(stdout.contains("true"));
     assert!(stdout.contains("uname"));
     assert!(stdout.contains("uniq"));
     assert!(stdout.contains("uptime"));
@@ -411,14 +422,15 @@ fn test_install_creates_launchers() {
     assert_command_success(&output, "installing applet launchers");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Installed:"));
-    assert!(stdout.contains("36 installed, 0 updated, 0 already installed"));
+    assert!(stdout.contains("47 installed, 0 updated, 0 already installed"));
     assert!(stdout.contains("Tip: add"));
 
     for applet in &[
-        "cat", "chgrp", "chmod", "chown", "cp", "cut", "df", "du", "echo", "expr", "find", "free",
-        "grep", "head", "id", "kill", "ln", "ls", "mkdir", "mv", "ps", "readlink", "relax", "rm",
-        "sort", "su", "tail", "test", "[", "touch", "tr", "uname", "uniq", "uptime", "wc",
-        "whoami",
+        "basename", "cat", "chgrp", "chmod", "chown", "cp", "cut", "df", "dirname", "du", "echo",
+        "env", "expr", "false", "find", "free", "grep", "head", "id", "kill", "ln", "ls", "mkdir",
+        "mv", "ps", "printf", "printenv", "pwd", "readlink", "realpath", "relax", "rm", "sleep",
+        "sort", "su", "tail", "tee", "test", "[", "touch", "tr", "true", "uname", "uniq", "uptime",
+        "wc", "whoami",
     ] {
         let launcher = installed_applet_path(&tmp_dir, applet);
         assert!(launcher.exists(), "launcher for {} should exist", applet);
@@ -583,7 +595,7 @@ fn test_install_rerun_skips_current_launchers() {
     let second = run_install(&tmp_dir);
     assert_command_success(&second, "rerunning an installation");
     let stdout = String::from_utf8_lossy(&second.stdout);
-    assert!(stdout.contains("0 installed, 0 updated, 36 already installed"));
+    assert!(stdout.contains("0 installed, 0 updated, 47 already installed"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
@@ -3532,6 +3544,296 @@ fn test_su_help() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Usage:"));
     assert!(stdout.contains("su"));
+}
+
+#[test]
+fn test_true_and_false_exit_statuses() {
+    let success = idlebox_command().arg("true").output().unwrap();
+    assert!(success.status.success());
+    assert!(success.stdout.is_empty());
+
+    let failure = idlebox_command().arg("false").output().unwrap();
+    assert_eq!(failure.status.code(), Some(1));
+    assert!(failure.stdout.is_empty());
+}
+
+#[test]
+fn test_pwd_physical() {
+    let output = idlebox_command().args(["pwd", "-P"]).output().unwrap();
+    assert_command_success(&output, "printing the current directory");
+    let expected = fs::canonicalize(std::env::current_dir().unwrap()).unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim_end(),
+        expected.to_string_lossy()
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn test_pwd_logical_preserves_valid_symlink_path() {
+    let tmp_dir = install_test_dir("pwd_logical");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    let physical = tmp_dir.join("physical");
+    let logical = tmp_dir.join("logical");
+    fs::create_dir_all(&physical).unwrap();
+    std::os::unix::fs::symlink(&physical, &logical).unwrap();
+
+    let output = idlebox_command()
+        .args(["pwd", "-L"])
+        .current_dir(&logical)
+        .env("PWD", &logical)
+        .output()
+        .unwrap();
+    assert_command_success(&output, "printing a logical current directory");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim_end(),
+        logical.to_string_lossy()
+    );
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_basename_and_dirname() {
+    let basename = idlebox_command()
+        .args(["basename", "/usr/local/bin/tool.rs", ".rs"])
+        .output()
+        .unwrap();
+    assert_command_success(&basename, "stripping a base name");
+    assert_eq!(basename.stdout, b"tool\n");
+
+    let multiple = idlebox_command()
+        .args(["basename", "-s", ".txt", "one.txt", "/tmp/two.txt"])
+        .output()
+        .unwrap();
+    assert_command_success(&multiple, "stripping multiple base names");
+    assert_eq!(multiple.stdout, b"one\ntwo\n");
+
+    let dirname = idlebox_command()
+        .args(["dirname", "/usr/local/bin/"])
+        .output()
+        .unwrap();
+    assert_command_success(&dirname, "stripping a directory name");
+    assert_eq!(dirname.stdout, b"/usr/local\n");
+}
+
+#[test]
+fn test_realpath_existing_path() {
+    let tmp_dir = install_test_dir("realpath");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    let file = tmp_dir.join("file.txt");
+    fs::write(&file, b"content").unwrap();
+
+    let output = idlebox_command()
+        .args(["realpath", file.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_command_success(&output, "canonicalizing a path");
+    let expected = fs::canonicalize(&file).unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim_end(),
+        expected.to_string_lossy()
+    );
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_realpath_quiet_continues_after_missing_path() {
+    let tmp_dir = install_test_dir("realpath_quiet");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    let existing = tmp_dir.join("existing");
+    let missing = tmp_dir.join("missing");
+    fs::write(&existing, b"content").unwrap();
+
+    let output = idlebox_command()
+        .args([
+            "realpath",
+            "-q",
+            missing.to_str().unwrap(),
+            existing.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim_end(),
+        fs::canonicalize(&existing).unwrap().to_string_lossy()
+    );
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_sleep_zero_and_invalid_interval() {
+    let success = idlebox_command()
+        .args(["sleep", "0", "0s"])
+        .output()
+        .unwrap();
+    assert_command_success(&success, "sleeping for zero seconds");
+
+    let failure = idlebox_command().args(["sleep", "1week"]).output().unwrap();
+    assert_eq!(failure.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&failure.stderr).contains("invalid time interval"));
+}
+
+#[test]
+fn test_env_prints_modified_environment() {
+    let output = idlebox_command()
+        .args(["env", "-i", "IDLEBOX_ENV_TEST=works"])
+        .output()
+        .unwrap();
+    assert_command_success(&output, "printing a modified environment");
+    assert_eq!(output.stdout, b"IDLEBOX_ENV_TEST=works\n");
+}
+
+#[test]
+fn test_env_executes_command_with_modified_environment() {
+    let output = idlebox_command()
+        .args([
+            "env",
+            "-i",
+            "IDLEBOX_ENV_TEST=works",
+            env!("CARGO_BIN_EXE_idlebox"),
+            "printenv",
+            "IDLEBOX_ENV_TEST",
+        ])
+        .output()
+        .unwrap();
+    assert_command_success(&output, "executing a command with env");
+    assert_eq!(output.stdout, b"works\n");
+}
+
+#[test]
+fn test_env_does_not_capture_command_help_argument() {
+    let output = idlebox_command()
+        .args([
+            "env",
+            env!("CARGO_BIN_EXE_idlebox"),
+            "printf",
+            "%s",
+            "--help",
+        ])
+        .output()
+        .unwrap();
+    assert_command_success(&output, "passing command arguments through env");
+    assert_eq!(output.stdout, b"--help");
+}
+
+#[test]
+fn test_printenv_named_variables_and_missing_status() {
+    let output = idlebox_command()
+        .args(["printenv", "IDLEBOX_PRINTENV_TEST"])
+        .env("IDLEBOX_PRINTENV_TEST", "visible")
+        .output()
+        .unwrap();
+    assert_command_success(&output, "printing a named environment variable");
+    assert_eq!(output.stdout, b"visible\n");
+
+    let missing = idlebox_command()
+        .args(["printenv", "IDLEBOX_VARIABLE_THAT_DOES_NOT_EXIST"])
+        .env_remove("IDLEBOX_VARIABLE_THAT_DOES_NOT_EXIST")
+        .output()
+        .unwrap();
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(missing.stdout.is_empty());
+}
+
+#[test]
+fn test_printf_formats_and_reuses_format() {
+    let output = idlebox_command()
+        .args([
+            "printf",
+            "%s:%04d:%#x:%b\\n",
+            "first",
+            "7",
+            "31",
+            "a\\tb",
+            "second",
+            "8",
+            "32",
+            "c\\td",
+        ])
+        .output()
+        .unwrap();
+    assert_command_success(&output, "formatting arguments");
+    assert_eq!(
+        output.stdout,
+        b"first:0007:0x1f:a\tb\nsecond:0008:0x20:c\td\n"
+    );
+}
+
+#[test]
+fn test_printf_reports_invalid_numbers() {
+    let output = idlebox_command()
+        .args(["printf", "%d", "not-a-number"])
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.stdout, b"0");
+    assert!(String::from_utf8_lossy(&output.stderr).contains("expected a numeric value"));
+}
+
+#[test]
+fn test_tee_copies_to_stdout_and_files() {
+    let tmp_dir = install_test_dir("tee");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    let file = tmp_dir.join("output.txt");
+
+    let mut child = idlebox_command()
+        .args(["tee", file.to_str().unwrap()])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"first line\n")
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_command_success(&output, "copying input with tee");
+    assert_eq!(output.stdout, b"first line\n");
+    assert_eq!(fs::read(&file).unwrap(), b"first line\n");
+
+    let mut child = idlebox_command()
+        .args(["tee", "-a", file.to_str().unwrap()])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"second line\n")
+        .unwrap();
+    assert!(child.wait().unwrap().success());
+    assert_eq!(fs::read(&file).unwrap(), b"first line\nsecond line\n");
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_broken_pipe_exits_without_diagnostic() {
+    let tmp_dir = install_test_dir("broken_pipe");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+    let file = tmp_dir.join("large.txt");
+    fs::write(&file, vec![b'x'; 256 * 1024]).unwrap();
+
+    let mut child = idlebox_command()
+        .args(["cat", file.to_str().unwrap()])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    drop(child.stdout.take());
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    let _ = fs::remove_dir_all(&tmp_dir);
 }
 
 fn idlebox_command() -> Command {

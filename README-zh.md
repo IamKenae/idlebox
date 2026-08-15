@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
-[![Linux x86_64 ELF 体积](https://img.shields.io/badge/size-~326_KiB-green.svg)](https://github.com/IamKenae/idlebox/actions/workflows/size.yml)
+[![Linux x86_64 ELF 体积](https://img.shields.io/badge/size-~435_KiB-green.svg)](https://github.com/IamKenae/idlebox/actions/workflows/size.yml)
 
 [🇬🇧 English](README.md)
 
@@ -51,9 +51,9 @@ BusyBox 承载了嵌入式 Linux 的半壁江山。IdleBox 希望以现代语言
 
 | 平台 | 状态 | 说明 |
 |------|------|------|
-| Linux | 完整支持 | 全部 36 个 Applet |
-| macOS | 完整支持 | 全部 36 个 Applet |
-| Windows | 部分支持 | 20+ 个 Applet 完整支持；Unix 专属 Applet（chmod, chown, chgrp, id, su）优雅降级 |
+| Linux | 完整支持 | 全部 47 个 Applet |
+| macOS | 完整支持 | 全部 47 个 Applet |
+| Windows | 部分支持 | 30+ 个 Applet 完整支持；Unix 专属 Applet（chmod, chown, chgrp, id, su）优雅降级 |
 
 ---
 
@@ -62,6 +62,13 @@ BusyBox 承载了嵌入式 Linux 的半壁江山。IdleBox 希望以现代语言
 | Applet | 说明 | 亮点 |
 |--------|------|------|
 | `echo` | 输出文本到标准输出 | 支持 `-n` 不换行，流式写出参数而不再拼接第二份完整字符串 |
+| `printf` | 格式化并输出参数 | 重复使用格式串、反斜杠转义、`%s`/`%b`/`%c`、整数与浮点转换、宽度和精度 |
+| `true` / `false` | 返回固定退出状态 | 为脚本提供无输出的成功与失败基础命令 |
+| `env` | 在修改后的环境中运行命令 | `-i` 空环境、`-u` 删除变量、临时 `NAME=VALUE` 赋值与命令执行 |
+| `printenv` | 打印环境变量 | 输出全部或指定变量，可使用 NUL 分隔 |
+| `pwd` | 打印当前工作目录 | `-L` 逻辑路径与 `-P` 物理路径解析 |
+| `basename` | 去除名称中的目录与后缀 | 可选后缀删除、`-a`/`-s` 多操作数、NUL 分隔输出 |
+| `dirname` | 去除名称的最后一个组成部分 | 支持多个操作数与 NUL 分隔输出 |
 | `cat` | 连接文件并输出到标准输出 | 支持 `-n` 行号、`-b` 非空行号、`-A` 显示不可见字符、stdin 管道 |
 | `ls` | 列出目录内容 | **ANSI 炫彩输出**：目录蓝色、可执行文件绿色、压缩包红色、链接青色；支持 `-l` 长格式、`-a` 隐藏文件、`-h` 人类可读大小 |
 | `mkdir` | 创建目录 | 支持 `-p` 嵌套创建、一次创建多个目录 |
@@ -83,6 +90,9 @@ BusyBox 承载了嵌入式 Linux 的半壁江山。IdleBox 希望以现代语言
 | `uptime` | 显示系统运行时间 | 解析 `/proc/uptime` + `/proc/loadavg`、显示运行时长与 1/5/15 分钟平均负载 |
 | `ln` | 创建文件链接 | `-s` 符号链接、`-f` 强制覆盖、默认硬链接、多目标链接到目录 |
 | `readlink` | 打印已解析的符号链接 | `-f`/`-e` 规范化为绝对路径、`-n` 不输出末尾换行符 |
+| `realpath` | 打印规范化绝对路径 | 规范化已有路径、静默诊断、NUL 分隔输出 |
+| `sleep` | 暂停指定时长 | 小数时长、`s`/`m`/`h`/`d` 后缀、多个时长相加 |
+| `tee` | 将 stdin 同时复制到文件和 stdout | 多输出文件、`-a` 追加、`-i` 忽略中断，下游关闭后继续写文件 |
 | `uname` | 打印系统信息 | POSIX `uname()` FFI、`-a` 全部信息、`-s`/`-n`/`-r`/`-v`/`-m` 单独字段 |
 | `test` / `[` | 评估条件表达式 | POSIX 兼容的 `test` 和 `[` 两种形态、文件/字符串/数值测试、逻辑运算符 |
 | `expr` | 评估表达式并输出结果 | 算术、比较、逻辑、字符串操作；递归下降解析器 |
@@ -122,6 +132,8 @@ ls -lh target/release/idlebox
 ```bash
 # 直接调用
 idlebox echo "Hello, IdleBox!"
+idlebox printf '%s = %04d\n' answer 42
+idlebox env MODE=demo idlebox printenv MODE
 idlebox cat -n README.md
 idlebox ls --color=auto -lah
 
@@ -151,7 +163,7 @@ ln -s idlebox ls
 cargo test
 ```
 
-GitHub Actions 将格式化/lint/文档、Linux/macOS/Windows 原生测试、跨目标可移植性和 Linux Release 体积预算拆分为独立工作流。
+GitHub Actions 将格式化/lint/文档、Linux/macOS/Windows 原生测试、跨目标可移植性和 Linux Release 体积测量拆分为独立工作流。
 
 ---
 
