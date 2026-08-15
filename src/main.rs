@@ -78,36 +78,52 @@ fn main() {
     }
 
     if invoked_as_idlebox && applet_name == "--install" {
-        let options_ended = applet_args.first().is_some_and(|arg| arg == "--");
-        let install_args = if options_ended {
-            &applet_args[1..]
-        } else {
-            applet_args
+        let mut target = None;
+        let mut force = false;
+        let mut dry_run = false;
+        let mut options_ended = false;
+
+        for argument in applet_args {
+            if !options_ended {
+                match argument.as_str() {
+                    "--" => {
+                        options_ended = true;
+                        continue;
+                    }
+                    "-h" | "--help" => {
+                        print_install_usage();
+                        process::exit(0);
+                    }
+                    "--force" => {
+                        force = true;
+                        continue;
+                    }
+                    "--dry-run" => {
+                        dry_run = true;
+                        continue;
+                    }
+                    option if option.starts_with('-') => {
+                        eprintln!("idlebox: --install: unknown option '{}'", option);
+                        eprintln!("Use '--' before PATH when the path starts with '-'.");
+                        process::exit(1);
+                    }
+                    _ => {}
+                }
+            }
+
+            if target.is_some() {
+                eprintln!("idlebox: --install: unexpected argument '{}'", argument);
+                process::exit(1);
+            }
+            target = Some(argument.as_str());
+        }
+
+        let options = crate::core::install::InstallOptions {
+            target,
+            force,
+            dry_run,
         };
-
-        if install_args.len() == 1 && matches!(install_args[0].as_str(), "-h" | "--help") {
-            print_install_usage();
-            process::exit(0);
-        }
-        if !options_ended
-            && install_args
-                .first()
-                .is_some_and(|argument| argument.starts_with('-'))
-        {
-            eprintln!("idlebox: --install: unknown option '{}'", install_args[0]);
-            eprintln!("Use '--' before PATH when the path starts with '-'.");
-            process::exit(1);
-        }
-        if install_args.len() > 1 {
-            eprintln!(
-                "idlebox: --install: unexpected argument '{}'",
-                install_args[1]
-            );
-            process::exit(1);
-        }
-
-        let target = install_args.first().map(String::as_str);
-        match crate::core::install::install(target) {
+        match crate::core::install::install(options) {
             Ok(code) => process::exit(code),
             Err(error) => {
                 eprintln!("idlebox: install failed: {}", error);
@@ -144,7 +160,7 @@ fn print_usage(dispatcher: &Dispatcher) {
     println!("  idlebox <applet> [args...]    # Run an applet");
     println!("  idlebox help [APPLET]         # Show general or applet help");
     println!("  idlebox list                  # List all applets");
-    println!("  idlebox --install [PATH]      # Install launchers for all applets");
+    println!("  idlebox --install [OPTIONS] [PATH] # Install launchers for all applets");
     println!("  idlebox --version             # Print the IdleBox version");
     println!("  ./<applet> [args...]          # Run via an installed launcher");
     println!();
@@ -153,9 +169,16 @@ fn print_usage(dispatcher: &Dispatcher) {
 }
 
 fn print_install_usage() {
-    println!("Usage: idlebox --install [PATH]");
+    println!("Usage: idlebox --install [OPTIONS] [PATH]");
     println!();
     println!("Install launchers for every registered applet.");
+    println!();
+    println!("Options:");
+    println!("  --force       Replace existing files and links");
+    println!("  --dry-run     Preview changes without writing anything");
+    println!("  -h, --help    Print this help");
+    println!();
+    println!("Existing directories are never replaced.");
     println!("Use '--' before PATH when the path starts with '-'.");
 }
 

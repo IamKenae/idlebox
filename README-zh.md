@@ -96,7 +96,7 @@ BusyBox 承载了嵌入式 Linux 的半壁江山。IdleBox 希望以现代语言
 | `whoami` | 打印有效用户名 | POSIX `geteuid()` + `getpwuid()` FFI |
 | `su` | 切换用户 | `-l` 登录 Shell、`-c` 命令、`-s` Shell；仅 root |
 | `relax` | IdleBox 特色：休息一下 | 独特的放松体验，体现 "Idle" 精神 |
-| `--install` | 自动部署 Applet launcher | Unix 创建符号链接；Windows 创建 `.exe` launcher，硬链接不可用时回退为文件副本 |
+| `--install` | 自动部署 Applet launcher | 支持 `--dry-run` 预览、默认保护冲突，并在 Unix 创建符号链接、Windows 创建 `.exe` launcher |
 
 ---
 
@@ -134,6 +134,8 @@ idlebox --version
 # 自动安装（为所有 Applet 创建 launcher）
 idlebox --install              # Unix: /usr/local/bin；Windows: %LOCALAPPDATA%\IdleBox\bin
 idlebox --install ./bin        # 安装到自定义目录
+idlebox --install --dry-run ./bin  # 预览但不执行写入
+idlebox --install --force ./bin    # 明确替换冲突的文件或链接
 
 # Unix 上通过符号链接调用
 cd target/release

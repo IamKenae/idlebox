@@ -96,7 +96,7 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 | `whoami` | Print effective user name | POSIX `geteuid()` + `getpwuid()` FFI |
 | `su` | Switch user | `-l` login shell, `-c` command, `-s` shell; root-only |
 | `relax` | IdleBox special: take a break and relax | A unique relaxation experience, embodying the "Idle" spirit |
-| `--install` | Automated applet launcher deployment | Creates symlinks on Unix; on Windows creates `.exe` launchers using a hard link with a copy fallback |
+| `--install` | Automated applet launcher deployment | Previews with `--dry-run`, protects conflicts by default, and creates symlinks on Unix or `.exe` launchers on Windows |
 
 ---
 
@@ -134,6 +134,8 @@ idlebox --version
 # Automated install (create launchers for all applets)
 idlebox --install              # Unix: /usr/local/bin; Windows: %LOCALAPPDATA%\IdleBox\bin
 idlebox --install ./bin        # Install to a custom directory
+idlebox --install --dry-run ./bin  # Preview without making changes
+idlebox --install --force ./bin    # Explicitly replace conflicting files or links
 
 # Via symlink on Unix
 cd target/release

@@ -14,8 +14,14 @@ fn install_test_dir(name: &str) -> PathBuf {
 }
 
 fn run_install(directory: &Path) -> std::process::Output {
+    run_install_with_options(directory, &[])
+}
+
+fn run_install_with_options(directory: &Path, options: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_idlebox"))
-        .args(["--install", directory.to_str().unwrap()])
+        .arg("--install")
+        .args(options)
+        .arg(directory)
         .output()
         .expect("failed to execute idlebox --install")
 }
@@ -202,7 +208,10 @@ fn test_install_help() {
         .expect("failed to execute process");
 
     assert!(output.status.success());
-    assert!(String::from_utf8_lossy(&output.stdout).contains("Usage: idlebox --install [PATH]"));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Usage: idlebox --install [OPTIONS] [PATH]"));
+    assert!(stdout.contains("--force"));
+    assert!(stdout.contains("--dry-run"));
 }
 
 #[test]
@@ -402,6 +411,8 @@ fn test_install_creates_launchers() {
     assert_command_success(&output, "installing applet launchers");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Installed:"));
+    assert!(stdout.contains("36 installed, 0 updated, 0 already installed"));
+    assert!(stdout.contains("Tip: add"));
 
     for applet in &[
         "cat", "chgrp", "chmod", "chown", "cp", "cut", "df", "du", "echo", "expr", "find", "free",
@@ -432,16 +443,48 @@ fn test_install_creates_launchers() {
 }
 
 #[test]
-fn test_install_overwrites_existing() {
-    let tmp_dir = install_test_dir("install_overwrite");
+fn test_install_refuses_existing_file_without_force() {
+    let tmp_dir = install_test_dir("install_refuse_existing");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let echo_launcher = installed_applet_path(&tmp_dir, "echo");
+    let cat_launcher = installed_applet_path(&tmp_dir, "cat");
+    fs::write(&echo_launcher, "dummy").unwrap();
+    fs::write(&cat_launcher, "also dummy").unwrap();
+
+    let output = run_install(&tmp_dir);
+
+    assert!(!output.status.success());
+    assert_eq!(fs::read_to_string(&echo_launcher).unwrap(), "dummy");
+    assert_eq!(fs::read_to_string(&cat_launcher).unwrap(), "also dummy");
+    assert!(
+        !installed_applet_path(&tmp_dir, "chgrp").exists(),
+        "preflight must finish before any launcher is written"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Conflict:"));
+    assert!(stderr.contains(&echo_launcher.display().to_string()));
+    assert!(stderr.contains(&cat_launcher.display().to_string()));
+    assert!(stderr.contains("--force"));
+    assert!(stderr.contains("no launchers were changed"));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_install_force_overwrites_existing_file() {
+    let tmp_dir = install_test_dir("install_force_overwrite");
     let _ = fs::remove_dir_all(&tmp_dir);
     fs::create_dir_all(&tmp_dir).unwrap();
 
     let echo_launcher = installed_applet_path(&tmp_dir, "echo");
     fs::write(&echo_launcher, "dummy").unwrap();
 
-    let output = run_install(&tmp_dir);
-    assert_command_success(&output, "overwriting an existing launcher");
+    let output = run_install_with_options(&tmp_dir, &["--force"]);
+    assert_command_success(&output, "force-updating an existing launcher");
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Updated:"));
 
     let output = Command::new(&echo_launcher)
         .arg("overwritten")
@@ -471,7 +514,7 @@ fn test_install_does_not_replace_directory() {
     let echo_launcher = installed_applet_path(&tmp_dir, "echo");
     fs::create_dir_all(&echo_launcher).unwrap();
 
-    let output = run_install(&tmp_dir);
+    let output = run_install_with_options(&tmp_dir, &["--force"]);
 
     assert!(!output.status.success());
     assert!(
@@ -479,9 +522,68 @@ fn test_install_does_not_replace_directory() {
         "an existing directory must be preserved"
     );
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("because it is a directory"),
+        String::from_utf8_lossy(&output.stderr)
+            .contains("is a directory; directories are never replaced"),
         "the failure should explain the directory conflict"
     );
+    assert!(
+        !installed_applet_path(&tmp_dir, "cat").exists(),
+        "a directory conflict must abort before installing other launchers"
+    );
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_install_dry_run_does_not_create_directory() {
+    let tmp_dir = install_test_dir("install_dry_run");
+    let _ = fs::remove_dir_all(&tmp_dir);
+
+    let output = run_install_with_options(&tmp_dir, &["--dry-run"]);
+
+    assert_command_success(&output, "previewing an installation");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Would install:"));
+    assert!(stdout.contains("no changes made"));
+    assert!(
+        !tmp_dir.exists(),
+        "a dry run must not create the target directory"
+    );
+}
+
+#[test]
+fn test_install_force_dry_run_does_not_replace_file() {
+    let tmp_dir = install_test_dir("install_force_dry_run");
+    let _ = fs::remove_dir_all(&tmp_dir);
+    fs::create_dir_all(&tmp_dir).unwrap();
+
+    let echo_launcher = installed_applet_path(&tmp_dir, "echo");
+    fs::write(&echo_launcher, "dummy").unwrap();
+
+    let output = run_install_with_options(&tmp_dir, &["--force", "--dry-run"]);
+
+    assert_command_success(&output, "previewing a forced update");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Would update:"));
+    assert!(stdout.contains("1 to update"));
+    assert_eq!(fs::read_to_string(&echo_launcher).unwrap(), "dummy");
+    assert!(!installed_applet_path(&tmp_dir, "cat").exists());
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+#[test]
+fn test_install_rerun_skips_current_launchers() {
+    let tmp_dir = install_test_dir("install_rerun");
+    let _ = fs::remove_dir_all(&tmp_dir);
+
+    let first = run_install(&tmp_dir);
+    assert_command_success(&first, "installing launchers before a rerun");
+
+    let second = run_install(&tmp_dir);
+    assert_command_success(&second, "rerunning an installation");
+    let stdout = String::from_utf8_lossy(&second.stdout);
+    assert!(stdout.contains("0 installed, 0 updated, 36 already installed"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
