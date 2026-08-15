@@ -6,7 +6,6 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
-[![Size](https://img.shields.io/badge/size-optimized-green.svg)](target/release/idlebox)
 
 [🇬🇧 English](README.md)
 
