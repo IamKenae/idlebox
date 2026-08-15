@@ -324,7 +324,7 @@ impl GrepApplet {
 
             let handle = thread::spawn(move || loop {
                 let idx = {
-                    let mut guard = file_indices.lock().unwrap();
+                    let mut guard = file_indices.lock().unwrap_or_else(|e| e.into_inner());
                     guard.next()
                 };
 
