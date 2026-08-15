@@ -2736,13 +2736,13 @@ fn test_chgrp_invalid_group() {
 #[cfg(unix)]
 fn test_chgrp_no_file() {
     let output = Command::new("cargo")
-        .args(["run", "--quiet", "--", "chgrp", "root", "/tmp/idlebox_nonexistent_file_xyz"])
+        .args(["run", "--quiet", "--", "chgrp", "0", "/tmp/idlebox_nonexistent_file_xyz"])
         .output()
         .expect("failed to execute process");
 
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("cannot access"));
+    assert!(stderr.contains("cannot access") || stderr.contains("No such file"));
 }
 
 #[test]

@@ -433,6 +433,7 @@ fn print_disk_line(out: &mut impl Write, _fs_type: &str, mount_point: &str, _inf
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 fn human_size(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "K", "M", "G", "T", "P"];
     let mut size = bytes as f64;

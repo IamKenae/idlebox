@@ -187,15 +187,6 @@ fn get_uname_info() -> Result<UtsName, Box<dyn std::error::Error>> {
     })
 }
 
-#[cfg(unix)]
-fn c_buf_to_string(buf: &[i8; 65]) -> String {
-    let bytes: Vec<u8> = buf.iter()
-        .take_while(|&&b| b != 0)
-        .map(|&b| b as u8)
-        .collect();
-    String::from_utf8_lossy(&bytes).to_string()
-}
-
 #[cfg(not(unix))]
 fn get_uname_info_fallback() -> UtsName {
     let sysname = if cfg!(windows) {
@@ -225,7 +216,7 @@ fn get_uname_info_fallback() -> UtsName {
     }
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[repr(C)]
 struct libc_utsname {
     sysname: [i8; 65],
@@ -236,8 +227,36 @@ struct libc_utsname {
     _domainname: [i8; 65],
 }
 
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct libc_utsname {
+    sysname: [i8; 256],
+    nodename: [i8; 256],
+    release: [i8; 256],
+    version: [i8; 256],
+    machine: [i8; 256],
+}
+
 #[cfg(unix)]
 extern "C" {
     #[link_name = "uname"]
     fn raw_uname(buf: *mut libc_utsname) -> i32;
+}
+
+#[cfg(target_os = "linux")]
+fn c_buf_to_string(buf: &[i8; 65]) -> String {
+    let bytes: Vec<u8> = buf.iter()
+        .take_while(|&&b| b != 0)
+        .map(|&b| b as u8)
+        .collect();
+    String::from_utf8_lossy(&bytes).to_string()
+}
+
+#[cfg(target_os = "macos")]
+fn c_buf_to_string(buf: &[i8; 256]) -> String {
+    let bytes: Vec<u8> = buf.iter()
+        .take_while(|&&b| b != 0)
+        .map(|&b| b as u8)
+        .collect();
+    String::from_utf8_lossy(&bytes).to_string()
 }

@@ -68,7 +68,7 @@ impl Applet for PsApplet {
     #[cfg(target_os = "macos")]
     fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let mut show_all = false;
-        let mut custom_cols: Option<Vec<String>> = None;
+        let custom_cols: Option<Vec<String>> = None;
 
         for arg in args {
             match arg.as_str() {

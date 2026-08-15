@@ -215,7 +215,7 @@ struct PasswdInfo {
     gid: u32,
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[repr(C)]
 struct Passwd {
     pw_name: *const i8,
@@ -225,6 +225,21 @@ struct Passwd {
     pw_gecos: *const i8,
     pw_dir: *const i8,
     pw_shell: *const i8,
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct Passwd {
+    pw_name: *const i8,
+    pw_passwd: *const i8,
+    pw_uid: u32,
+    pw_gid: u32,
+    pw_change: i64,
+    pw_class: *const i8,
+    pw_gecos: *const i8,
+    pw_dir: *const i8,
+    pw_shell: *const i8,
+    pw_expire: i64,
 }
 
 #[cfg(unix)]
