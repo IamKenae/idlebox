@@ -197,8 +197,7 @@ impl Applet for WcApplet {
             }
         }
 
-        let real_file_count = files.iter().filter(|f| **f != "-").count();
-        if real_file_count > 1 {
+        if file_count > 1 {
             Self::print_counts(&mut out, &total, mode, Some("total"))?;
         }
 

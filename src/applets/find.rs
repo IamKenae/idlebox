@@ -230,20 +230,22 @@ fn find_parallel(
                 let (path, depth) = {
                     let mut queue = work_queue.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some(item) = queue.pop_front() {
-                        active_threads.fetch_add(1, Ordering::SeqCst);
+                        active_threads.fetch_add(1, Ordering::AcqRel);
                         item
                     } else {
                         // Re-check under lock to avoid race with concurrent push
-                        if active_threads.load(Ordering::SeqCst) == 0 {
+                        if active_threads.load(Ordering::Acquire) == 0 {
                             break;
                         }
+                        drop(queue);
+                        std::thread::yield_now();
                         continue;
                     }
                 };
 
                 if let Some(max) = options.max_depth {
                     if depth > max {
-                        active_threads.fetch_sub(1, Ordering::SeqCst);
+                        active_threads.fetch_sub(1, Ordering::AcqRel);
                         continue;
                     }
                 }
@@ -253,7 +255,7 @@ fn find_parallel(
                     Err(e) => {
                         eprintln!("find: {}: {}", path.display(), e);
                         had_error = true;
-                        active_threads.fetch_sub(1, Ordering::SeqCst);
+                        active_threads.fetch_sub(1, Ordering::AcqRel);
                         continue;
                     }
                 };
@@ -269,7 +271,7 @@ fn find_parallel(
                     Err(e) => {
                         eprintln!("find: {}: {}", path.display(), e);
                         had_error = true;
-                        active_threads.fetch_sub(1, Ordering::SeqCst);
+                        active_threads.fetch_sub(1, Ordering::AcqRel);
                         continue;
                     }
                 };
@@ -284,7 +286,7 @@ fn find_parallel(
                         Err(e) => {
                             eprintln!("find: {}: {}", path.display(), e);
                             had_error = true;
-                            active_threads.fetch_sub(1, Ordering::SeqCst);
+                            active_threads.fetch_sub(1, Ordering::AcqRel);
                             continue;
                         }
                     };
@@ -309,7 +311,7 @@ fn find_parallel(
                     }
                 }
 
-                active_threads.fetch_sub(1, Ordering::SeqCst);
+                active_threads.fetch_sub(1, Ordering::AcqRel);
             }
 
             tx.send((local_results, had_error)).ok();
