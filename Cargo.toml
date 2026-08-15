@@ -11,6 +11,8 @@ keywords = ["busybox", "toolbox", "embedded", "minimal"]
 categories = ["command-line-utilities", "os"]
 
 [dependencies]
+crc32fast = "1.5.0"
+flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
 
 [profile.release]
 opt-level = "z"

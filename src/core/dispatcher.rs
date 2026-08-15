@@ -1,11 +1,11 @@
 use crate::applets::{
     BasenameApplet, BracketApplet, CatApplet, ChgrpApplet, ChmodApplet, ChownApplet, CpApplet,
     CutApplet, DfApplet, DirnameApplet, DuApplet, EchoApplet, EnvApplet, ExprApplet, FalseApplet,
-    FindApplet, FreeApplet, GrepApplet, HeadApplet, IdApplet, KillApplet, LnApplet, LsApplet,
-    MkdirApplet, MvApplet, PrintenvApplet, PrintfApplet, PsApplet, PwdApplet, ReadlinkApplet,
-    RealpathApplet, RelaxApplet, RmApplet, SleepApplet, SortApplet, SuApplet, TailApplet,
-    TeeApplet, TestApplet, TouchApplet, TrApplet, TrueApplet, UnameApplet, UniqApplet,
-    UptimeApplet, WcApplet, WhoamiApplet,
+    FindApplet, FreeApplet, GrepApplet, GunzipApplet, GzipApplet, HeadApplet, IdApplet, KillApplet,
+    LnApplet, LsApplet, MkdirApplet, MvApplet, PrintenvApplet, PrintfApplet, PsApplet, PwdApplet,
+    ReadlinkApplet, RealpathApplet, RelaxApplet, RmApplet, SleepApplet, SortApplet, SuApplet,
+    TailApplet, TarApplet, TeeApplet, TestApplet, TouchApplet, TrApplet, TrueApplet, UnameApplet,
+    UniqApplet, UnzipApplet, UptimeApplet, WcApplet, WhoamiApplet, ZcatApplet,
 };
 use crate::core::Applet;
 
@@ -68,6 +68,8 @@ static APPLETS: &[AppletEntry] = &[
     AppletEntry::new(&FindApplet, true),
     AppletEntry::new(&FreeApplet, false),
     AppletEntry::new(&GrepApplet, true),
+    AppletEntry::new(&GunzipApplet, true),
+    AppletEntry::new(&GzipApplet, true),
     AppletEntry::new(&HeadApplet, true),
     AppletEntry::new(&IdApplet, true),
     AppletEntry::new(&KillApplet, false),
@@ -87,6 +89,7 @@ static APPLETS: &[AppletEntry] = &[
     AppletEntry::new(&SleepApplet, true),
     AppletEntry::new(&SuApplet, true),
     AppletEntry::new(&TailApplet, true),
+    AppletEntry::new(&TarApplet, true),
     AppletEntry::new(&TeeApplet, true),
     AppletEntry::new(&TestApplet, false),
     AppletEntry::new(&BracketApplet, false),
@@ -95,9 +98,11 @@ static APPLETS: &[AppletEntry] = &[
     AppletEntry::new(&TrueApplet, true),
     AppletEntry::new(&UnameApplet, true),
     AppletEntry::new(&UniqApplet, true),
+    AppletEntry::new(&UnzipApplet, true),
     AppletEntry::new(&UptimeApplet, false),
     AppletEntry::new(&WcApplet, true),
     AppletEntry::new(&WhoamiApplet, true),
+    AppletEntry::new(&ZcatApplet, true),
 ];
 
 pub struct Dispatcher;
