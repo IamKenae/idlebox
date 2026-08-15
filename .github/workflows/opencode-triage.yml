@@ -1,0 +1,44 @@
+name: opencode-triage
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run OpenCode triage
+        uses: anomalyco/opencode/github@latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        with:
+          model: opencode-go/mimo-v2.5
+          prompt: |
+            Triage this issue for the Idlebox project (a lightweight BusyBox alternative in Rust).
+
+            Steps:
+            1. Read the issue title and body carefully.
+            2. Classify the issue type: bug report, feature request, applet request, documentation, question, or duplicate.
+            3. If it's a bug report:
+               - Identify which applet or core module is likely affected.
+               - Look at the relevant source code to assess severity.
+               - Label the issue with an appropriate priority if possible.
+            4. If it's a feature or applet request:
+               - Check if similar functionality already exists.
+               - Assess whether it aligns with the project's design philosophy (lightweight, pure-Rust, cross-platform, POSIX-compatible).
+               - Add a comment with initial guidance or relevant source references.
+            5. If the issue is unclear, ask a clarifying question.
+
+            Keep comments concise and helpful. Do not comment if the issue is already well-handled.
