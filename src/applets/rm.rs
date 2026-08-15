@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{banner, Applet};
 use std::fs;
 use std::path::Path;
 
@@ -53,7 +53,7 @@ impl Applet for RmApplet {
             if force {
                 return Ok(0);
             }
-            eprintln!("rm: missing operand");
+            self.print_usage();
             return Ok(1);
         }
 
@@ -97,6 +97,8 @@ impl Applet for RmApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: rm [OPTION]... FILE...");
         println!();
         println!("{}", self.description());
@@ -104,5 +106,17 @@ impl Applet for RmApplet {
         println!("Options:");
         println!("  -r, -R, --recursive    Remove directories and their contents recursively");
         println!("  -f, --force            Ignore nonexistent files and arguments");
+    }
+}
+
+impl RmApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: rm [OPTION]... FILE...");
+        eprintln!();
+        eprintln!("Options:");
+        eprintln!("  -r, -R, --recursive    Remove directories and their contents recursively");
+        eprintln!("  -f, --force            Ignore nonexistent files and arguments");
     }
 }

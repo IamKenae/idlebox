@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{banner, Applet};
 use std::io::{self, Write};
 
 pub struct DirnameApplet;
@@ -39,7 +39,7 @@ impl Applet for DirnameApplet {
         }
 
         if operands.is_empty() {
-            eprintln!("dirname: missing operand");
+            self.print_usage();
             return Ok(1);
         }
 
@@ -54,12 +54,25 @@ impl Applet for DirnameApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: dirname [OPTION] NAME...");
         println!();
         println!("{}", self.description());
         println!();
         println!("Options:");
         println!("  -z, --zero  End each output with NUL, not newline");
+    }
+}
+
+impl DirnameApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: dirname [OPTION] NAME...");
+        eprintln!();
+        eprintln!("Options:");
+        eprintln!("  -z, --zero  End each output with NUL, not newline");
     }
 }
 

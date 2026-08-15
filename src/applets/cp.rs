@@ -1,4 +1,5 @@
 use crate::core::{
+    banner,
     file_ops::{replace_file, same_file, unique_sibling_path, FollowSymlinks},
     Applet,
 };
@@ -51,7 +52,7 @@ impl Applet for CpApplet {
         }
 
         if sources.len() < 2 {
-            eprintln!("cp: missing destination operand");
+            self.print_usage();
             return Ok(1);
         }
 
@@ -124,6 +125,8 @@ impl Applet for CpApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: cp [OPTION]... SOURCE... DEST");
         println!();
         println!("{}", self.description());
@@ -135,6 +138,16 @@ impl Applet for CpApplet {
 }
 
 impl CpApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: cp [OPTION]... SOURCE... DEST");
+        eprintln!();
+        eprintln!("Options:");
+        eprintln!("  -r, -R, --recursive    Copy directories recursively");
+        eprintln!("  -f, --force            Force overwrite of existing destination files");
+    }
+
     fn copy_file(src: &Path, dest: &Path, force: bool) -> io::Result<()> {
         if same_file(src, dest, FollowSymlinks::Yes)? {
             return Err(Self::same_file_error(src, dest));

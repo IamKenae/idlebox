@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{banner, Applet};
 use std::io::{self, Write};
 
 pub struct PrintfApplet;
@@ -18,7 +18,7 @@ impl Applet for PrintfApplet {
             index = 1;
         }
         if index == args.len() {
-            eprintln!("printf: missing format operand");
+            self.print_usage();
             return Ok(1);
         }
 
@@ -34,6 +34,8 @@ impl Applet for PrintfApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: printf FORMAT [ARGUMENT]...");
         println!();
         println!("{}", self.description());
@@ -41,6 +43,18 @@ impl Applet for PrintfApplet {
         println!("Supports %s, %b, %c, signed and unsigned integer formats,");
         println!("floating-point formats, field width, precision, and backslash escapes.");
         println!("FORMAT is reused as necessary to consume all arguments.");
+    }
+}
+
+impl PrintfApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: printf FORMAT [ARGUMENT]...");
+        eprintln!();
+        eprintln!("Supports %s, %b, %c, signed and unsigned integer formats,");
+        eprintln!("floating-point formats, field width, precision, and backslash escapes.");
+        eprintln!("FORMAT is reused as necessary to consume all arguments.");
     }
 }
 

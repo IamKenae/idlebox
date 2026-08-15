@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{banner, Applet};
 use std::fs;
 use std::io::{self, Write};
 
@@ -55,7 +55,7 @@ impl Applet for ReadlinkApplet {
         }
 
         if paths.is_empty() {
-            eprintln!("readlink: missing operand");
+            self.print_usage();
             return Ok(1);
         }
 
@@ -93,6 +93,8 @@ impl Applet for ReadlinkApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: readlink [OPTION]... FILE...");
         println!();
         println!("{}", self.description());
@@ -100,5 +102,17 @@ impl Applet for ReadlinkApplet {
         println!("Options:");
         println!("  -f, -e, --canonicalize  Canonicalize by following every symlink");
         println!("  -n, --no-newline        Do not output the trailing newline");
+    }
+}
+
+impl ReadlinkApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: readlink [OPTION]... FILE...");
+        eprintln!();
+        eprintln!("Options:");
+        eprintln!("  -f, -e, --canonicalize  Canonicalize by following every symlink");
+        eprintln!("  -n, --no-newline        Do not output the trailing newline");
     }
 }

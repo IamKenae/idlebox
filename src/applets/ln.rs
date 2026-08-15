@@ -1,4 +1,5 @@
 use crate::core::{
+    banner,
     file_ops::{replace_file, same_file, unique_sibling_path, FollowSymlinks},
     Applet,
 };
@@ -58,7 +59,7 @@ impl Applet for LnApplet {
         }
 
         if positional.len() < 2 {
-            eprintln!("ln: missing file operand");
+            self.print_usage();
             return Ok(1);
         }
 
@@ -165,6 +166,8 @@ impl Applet for LnApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: ln [OPTION]... TARGET LINK_NAME");
         println!("   or: ln [OPTION]... TARGET... DIRECTORY");
         println!();
@@ -177,6 +180,17 @@ impl Applet for LnApplet {
 }
 
 impl LnApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: ln [OPTION]... TARGET LINK_NAME");
+        eprintln!("   or: ln [OPTION]... TARGET... DIRECTORY");
+        eprintln!();
+        eprintln!("Options:");
+        eprintln!("  -s, --symbolic   Create a symbolic link");
+        eprintln!("  -f, --force      Remove existing destination files");
+    }
+
     fn create_link(src: &str, destination: &Path, symbolic: bool) -> io::Result<()> {
         if symbolic {
             create_symlink(src, destination)

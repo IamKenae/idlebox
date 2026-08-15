@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{banner, Applet};
 use std::fs;
 use std::path::Path;
 
@@ -41,7 +41,7 @@ impl Applet for MkdirApplet {
         }
 
         if dirs.is_empty() {
-            eprintln!("mkdir: missing operand");
+            self.print_usage();
             return Ok(1);
         }
 
@@ -69,11 +69,24 @@ impl Applet for MkdirApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: mkdir [OPTION]... DIRECTORY...");
         println!();
         println!("{}", self.description());
         println!();
         println!("Options:");
         println!("  -p, --parents    Create parent directories as needed; no error if existing");
+    }
+}
+
+impl MkdirApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: mkdir [OPTION]... DIRECTORY...");
+        eprintln!();
+        eprintln!("Options:");
+        eprintln!("  -p, --parents    Create parent directories as needed; no error if existing");
     }
 }

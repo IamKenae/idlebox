@@ -1,4 +1,5 @@
 use crate::core::{
+    banner,
     file_ops::{replace_file, same_file, unique_sibling_path, FollowSymlinks},
     Applet,
 };
@@ -44,7 +45,11 @@ impl Applet for TarApplet {
         let options = match parse_options(args) {
             Ok(options) => options,
             Err(message) => {
+                eprintln!("{}", banner());
+                eprintln!();
                 eprintln!("tar: {message}");
+                eprintln!();
+                eprintln!("Usage: tar (-c|-x|-t) [-zv] [-f ARCHIVE] [-C DIR] [FILE]...");
                 return Ok(1);
             }
         };
@@ -57,6 +62,8 @@ impl Applet for TarApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: tar (-c|-x|-t) [-zv] [-f ARCHIVE] [-C DIR] [FILE]...");
         println!();
         println!("{}", self.description());

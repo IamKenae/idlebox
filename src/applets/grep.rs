@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{banner, Applet};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Write};
 
@@ -63,7 +63,7 @@ impl Applet for GrepApplet {
         let pattern = match pattern {
             Some(p) => p,
             None => {
-                eprintln!("grep: missing pattern");
+                self.print_usage();
                 return Ok(2);
             }
         };
@@ -112,9 +112,9 @@ impl Applet for GrepApplet {
     }
 
     fn help(&self) {
-        println!("Usage: grep [OPTION]... PATTERN [FILE]...");
+        println!("{}", banner());
         println!();
-        println!("{}", self.description());
+        println!("Usage: idlebox grep [OPTION]... PATTERN [FILE]...");
         println!();
         println!("Options:");
         println!("  -i, --ignore-case    Ignore case distinctions");
@@ -136,6 +136,20 @@ struct GrepOptions<'a> {
 }
 
 impl GrepApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: idlebox grep [OPTION]... PATTERN [FILE]...");
+        eprintln!();
+        eprintln!("Options:");
+        eprintln!("  -i, --ignore-case    Ignore case distinctions");
+        eprintln!("  -v, --invert-match   Select non-matching lines");
+        eprintln!("  -n, --line-number    Prefix each line with 1-based line number");
+        eprintln!("  -c, --count          Only print a count of matching lines");
+        eprintln!();
+        eprintln!("With no FILE, or when FILE is -, read standard input.");
+    }
+
     fn grep_file(
         out: &mut impl Write,
         path: &str,

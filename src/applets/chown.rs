@@ -1,6 +1,6 @@
 #[cfg(unix)]
 use crate::core::unix_ffi::{lock_account_db, raw_getgrnam, raw_getpwnam, raw_getpwuid};
-use crate::core::Applet;
+use crate::core::{banner, Applet};
 
 #[cfg(unix)]
 use std::ffi::{c_char, CString};
@@ -55,13 +55,13 @@ impl Applet for ChownApplet {
         let owner_spec = match owner_spec {
             Some(s) => s,
             None => {
-                eprintln!("chown: missing operand");
+                self.print_usage();
                 return Ok(1);
             }
         };
 
         if paths.is_empty() {
-            eprintln!("chown: missing operand after '{}'", owner_spec);
+            self.print_usage();
             return Ok(1);
         }
 
@@ -91,6 +91,8 @@ impl Applet for ChownApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: chown [OPTION]... [OWNER][:[GROUP]] FILE...");
         println!();
         println!("{}", self.description());
@@ -104,6 +106,21 @@ impl Applet for ChownApplet {
         println!();
         #[cfg(not(unix))]
         println!("Note: this applet is not supported on this platform.");
+    }
+}
+
+#[cfg(unix)]
+impl ChownApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: chown [OPTION]... [OWNER][:[GROUP]] FILE...");
+        eprintln!();
+        eprintln!("Options:");
+        eprintln!("  -R, --recursive   Change files and directories recursively");
+        eprintln!();
+        eprintln!("OWNER and GROUP may be numeric IDs or names.");
+        eprintln!("Examples: user, user:group, :group, 1000:1000");
     }
 }
 

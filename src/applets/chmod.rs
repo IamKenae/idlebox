@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{banner, Applet};
 
 #[cfg(unix)]
 use std::fs;
@@ -58,13 +58,13 @@ impl Applet for ChmodApplet {
         let mode_str = match mode_str {
             Some(m) => m,
             None => {
-                eprintln!("chmod: missing operand");
+                self.print_usage();
                 return Ok(1);
             }
         };
 
         if paths.is_empty() {
-            eprintln!("chmod: missing operand after '{}'", mode_str);
+            self.print_usage();
             return Ok(1);
         }
 
@@ -94,6 +94,8 @@ impl Applet for ChmodApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: chmod [OPTION]... MODE[,MODE]... FILE...");
         println!();
         println!("{}", self.description());
@@ -106,6 +108,20 @@ impl Applet for ChmodApplet {
         println!();
         #[cfg(not(unix))]
         println!("Note: this applet is not supported on this platform.");
+    }
+}
+
+#[cfg(unix)]
+impl ChmodApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: chmod [OPTION]... MODE[,MODE]... FILE...");
+        eprintln!();
+        eprintln!("Options:");
+        eprintln!("  -R, --recursive   Change files and directories recursively");
+        eprintln!();
+        eprintln!("MODE is an octal number (e.g. 755, 0644).");
     }
 }
 

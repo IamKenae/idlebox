@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{banner, Applet};
 use std::fs::{File, FileTimes, OpenOptions};
 use std::path::Path;
 use std::time::SystemTime;
@@ -29,7 +29,7 @@ impl Applet for TouchApplet {
         }
 
         if files.is_empty() {
-            eprintln!("touch: missing file operand");
+            self.print_usage();
             return Ok(1);
         }
 
@@ -58,6 +58,8 @@ impl Applet for TouchApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: touch [OPTION]... FILE...");
         println!();
         println!("{}", self.description());
@@ -68,6 +70,15 @@ impl Applet for TouchApplet {
 }
 
 impl TouchApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: touch [OPTION]... FILE...");
+        eprintln!();
+        eprintln!("If a FILE does not exist, it is created as an empty file.");
+        eprintln!("If a FILE exists, its access and modification times are updated to now.");
+    }
+
     fn update_timestamps(path: &Path, time: SystemTime) -> std::io::Result<()> {
         let file = OpenOptions::new().write(true).open(path)?;
         let times = FileTimes::new().set_accessed(time).set_modified(time);

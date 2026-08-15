@@ -1,4 +1,4 @@
-use crate::core::Applet;
+use crate::core::{banner, Applet};
 use std::io::{self, Write};
 
 pub struct BasenameApplet;
@@ -69,7 +69,7 @@ impl Applet for BasenameApplet {
         }
 
         if operands.is_empty() {
-            eprintln!("basename: missing operand");
+            self.print_usage();
             return Ok(1);
         }
 
@@ -101,6 +101,8 @@ impl Applet for BasenameApplet {
     }
 
     fn help(&self) {
+        println!("{}", banner());
+        println!();
         println!("Usage: basename NAME [SUFFIX]");
         println!("       basename OPTION... NAME...");
         println!();
@@ -110,6 +112,20 @@ impl Applet for BasenameApplet {
         println!("  -a, --multiple       Process every NAME");
         println!("  -s, --suffix=SUFFIX  Remove a trailing SUFFIX; implies -a");
         println!("  -z, --zero           End each output with NUL, not newline");
+    }
+}
+
+impl BasenameApplet {
+    fn print_usage(&self) {
+        eprintln!("{}", banner());
+        eprintln!();
+        eprintln!("Usage: basename NAME [SUFFIX]");
+        eprintln!("       basename OPTION... NAME...");
+        eprintln!();
+        eprintln!("Options:");
+        eprintln!("  -a, --multiple       Process every NAME");
+        eprintln!("  -s, --suffix=SUFFIX  Remove a trailing SUFFIX; implies -a");
+        eprintln!("  -z, --zero           End each output with NUL, not newline");
     }
 }
 

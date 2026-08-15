@@ -170,10 +170,7 @@ fn strip_exe_suffix(name: &str) -> &str {
 }
 
 fn print_usage(dispatcher: &Dispatcher) {
-    println!(
-        "IdleBox v{} - A lightweight multi-call toolbox",
-        env!("CARGO_PKG_VERSION")
-    );
+    println!("{}", crate::core::banner());
     println!();
     println!("Usage:");
     println!("  idlebox <applet> [args...]    # Run an applet");
