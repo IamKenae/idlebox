@@ -103,10 +103,8 @@ impl Applet for LsApplet {
 impl LsApplet {
     #[cfg(unix)]
     fn is_tty() -> bool {
-        unsafe {
-            let mut stat: libc_stat = std::mem::zeroed();
-            fstat(1, &mut stat) == 0 && (stat.st_mode & S_IFMT == S_IFCHR)
-        }
+        use std::io::IsTerminal;
+        std::io::stdout().is_terminal()
     }
 
     #[cfg(not(unix))]
@@ -460,37 +458,4 @@ impl LsApplet {
 
         None
     }
-}
-
-#[cfg(unix)]
-#[repr(C)]
-struct libc_stat {
-    st_dev: u64,
-    st_ino: u64,
-    st_nlink: u64,
-    st_mode: u32,
-    st_uid: u32,
-    st_gid: u32,
-    _pad0: i32,
-    st_rdev: u64,
-    st_size: i64,
-    st_blksize: i64,
-    st_blocks: i64,
-    st_atime: i64,
-    st_atime_nsec: i64,
-    st_mtime: i64,
-    st_mtime_nsec: i64,
-    st_ctime: i64,
-    st_ctime_nsec: i64,
-    _unused: [i64; 3],
-}
-
-#[cfg(unix)]
-const S_IFMT: u32 = 0o170000;
-#[cfg(unix)]
-const S_IFCHR: u32 = 0o020000;
-
-#[cfg(unix)]
-extern "C" {
-    fn fstat(fd: i32, stat: *mut libc_stat) -> i32;
 }

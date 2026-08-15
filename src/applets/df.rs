@@ -239,17 +239,22 @@ fn find_mount_for_path(path: &str) -> Result<MountEntry, io::Error> {
     use std::fs;
     let canonical = fs::canonicalize(path)
         .map_err(|e| io::Error::new(io::ErrorKind::NotFound, format!("{}: {}", path, e)))?;
-    let path_str = canonical.to_string_lossy().to_string();
+    let canonical_str = canonical.to_string_lossy().to_string();
 
     let mounts = parse_proc_mounts()?;
+
     let mut best_match: Option<&MountEntry> = None;
     let mut best_len = 0;
 
     for mount in &mounts {
-        if path_str == mount.mount_point || path_str.starts_with(&format!("{}/", mount.mount_point)) {
-            if mount.mount_point.len() > best_len {
-                best_len = mount.mount_point.len();
-                best_match = Some(mount);
+        for candidate in [&canonical_str, path] {
+            if candidate == mount.mount_point
+                || candidate.starts_with(&format!("{}/", mount.mount_point))
+            {
+                if mount.mount_point.len() > best_len {
+                    best_len = mount.mount_point.len();
+                    best_match = Some(mount);
+                }
             }
         }
     }
@@ -260,7 +265,11 @@ fn find_mount_for_path(path: &str) -> Result<MountEntry, io::Error> {
             mount_point: m.mount_point.clone(),
             fs_type: m.fs_type.clone(),
         }),
-        None => Err(io::Error::new(io::ErrorKind::NotFound, "no mount found for path")),
+        None => Ok(MountEntry {
+            device: "none".to_string(),
+            mount_point: path.to_string(),
+            fs_type: "unknown".to_string(),
+        }),
     }
 }
 
