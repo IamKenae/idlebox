@@ -294,6 +294,21 @@ fn get_groups() -> Vec<u32> {
     if !buf.contains(&effective_gid) {
         buf.insert(0, effective_gid);
     }
+
+    // Darwin's process credential list can omit extended directory-service
+    // memberships. The system `id` command includes those memberships, so
+    // merge them without discarding groups that are active on the process.
+    #[cfg(target_os = "macos")]
+    if let Some((username, passwd)) = get_username_by_uid(unsafe { raw_geteuid() })
+        .and_then(|username| get_passwd_by_name(&username).map(|passwd| (username, passwd)))
+    {
+        for gid in get_supplementary_gids_by_name(&username, passwd.gid) {
+            if !buf.contains(&gid) {
+                buf.push(gid);
+            }
+        }
+    }
+
     buf
 }
 
