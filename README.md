@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
-[![Size](https://img.shields.io/badge/size-~360KB-green.svg)](target/release/idlebox)
+[![Size](https://img.shields.io/badge/size-optimized-green.svg)](target/release/idlebox)
 
 [🇨🇳 中文文档](README-zh.md)
 
@@ -16,21 +16,30 @@
 
 ## Introduction
 
-**IdleBox** is an independent, lightweight, and visually polished BusyBox/POSIX-compatible toolbox written in pure Rust with zero external dependencies.
+**IdleBox** is an independent, lightweight, and visually polished multi-call toolbox inspired by BusyBox, written in pure Rust with zero external dependencies.
 
 ### Design Philosophy
 
 > Say goodbye to Busy, embrace Idle.
 
-BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this classic concept in modern Rust—maintaining POSIX compatibility while pursuing a smaller footprint, stronger safety guarantees, and a more delightful terminal experience.
+BusyBox has powered embedded Linux for over two decades. IdleBox reimagines its multi-call binary concept in modern Rust and progressively improves compatibility with common POSIX, BusyBox, and GNU workflows.
+
+The current stage focuses on making IdleBox itself better first: preserving flexibility, a small footprint, low overhead, and high performance while improving the project structure, core functionality, and user experience. Broader and deeper compatibility follows incrementally. This is a current engineering priority, not a permanent limit on the project's long-term direction.
+
+### Current Development Principles
+
+1. **Protect the lightweight foundation** — Prefer a single binary, zero external dependencies, modularity, and low runtime overhead
+2. **Optimize the project first** — Improve correctness, consistency, core functionality, cross-platform behavior, and maintainability
+3. **Expand compatibility progressively** — Cover common workflows first, then add more POSIX, BusyBox, and GNU behavior
+4. **Make evidence-based trade-offs** — Evaluate features and abstractions using binary size, startup time, throughput, and test results
 
 ---
 
 ## Features
 
 - **Zero Dependencies** — Pure Rust standard library, no third-party crates
-- **Ultra-compact** — ~360KB release binary, ideal for embedded and container environments
-- **POSIX Compatible** — Drop-in replacement for common Unix utilities
+- **Size-conscious** — Release settings prioritize a compact binary; actual size varies by target and toolchain
+- **Progressive Compatibility** — Covers common Unix/POSIX workflows first and incrementally expands BusyBox/GNU behavior
 - **Cross-Platform** — Supports Linux, macOS, and Windows
 - **Modular Design** — Easily extend via the Applet mechanism
 - **Symlink Support** — Invoke applets directly via symlinks

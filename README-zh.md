@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
-[![Size](https://img.shields.io/badge/size-~360KB-green.svg)](target/release/idlebox)
+[![Size](https://img.shields.io/badge/size-optimized-green.svg)](target/release/idlebox)
 
 [🇬🇧 English](README.md)
 
@@ -16,21 +16,30 @@
 
 ## 简介
 
-**空闲盒 (IdleBox)** 是一个独立、轻量、高颜值的 BusyBox/POSIX 兼容工具箱，使用纯 Rust 编写，零外部依赖。
+**空闲盒 (IdleBox)** 是一个受 BusyBox 启发的独立、轻量、高颜值多调用工具箱，使用纯 Rust 编写，零外部依赖。
 
 ### 设计理念
 
 > 告别 Busy，拥抱 Idle。
 
-BusyBox 承载了嵌入式 Linux 的半壁江山，但它的 C 代码库已走过了二十余年。IdleBox 希望以现代语言 Rust 重新诠释这一经典理念——在保持 POSIX 兼容性的同时，追求更小的体积、更高的安全性、以及更愉悦的终端体验。
+BusyBox 承载了嵌入式 Linux 的半壁江山。IdleBox 希望以现代语言 Rust 重新诠释它的多调用二进制理念，并逐步提升对 POSIX、BusyBox 和 GNU 常见工作流的兼容能力。
+
+当前阶段首先把 IdleBox 本身做好：在尽量保持灵活、小巧、轻便和高性能的前提下，持续优化项目结构、基础功能与用户体验，再循序推进更广、更深的兼容与替代。这是当前的工程优先级，而不是对项目长期边界的永久限定。
+
+### 当前开发原则
+
+1. **守住轻量基础** — 优先维持单二进制、零外部依赖、模块化和低运行开销
+2. **先优化项目本身** — 首先改善正确性、一致性、基础功能、跨平台体验和可维护性
+3. **渐进扩展兼容** — 优先支持日常高频用法，再逐步覆盖 POSIX、BusyBox 和 GNU 的更多行为
+4. **以数据决定取舍** — 通过体积、启动时间、吞吐量和测试结果评估功能与抽象的成本
 
 ---
 
 ## 特性
 
 - **零依赖** — 仅使用 Rust 标准库，不引入任何第三方 crate
-- **极致精简** — Release 构建约 360KB，适合嵌入式与容器场景
-- **POSIX 兼容** — 常见 Unix 工具的原生替代
+- **体积优先** — Release 配置针对体积优化；实际大小随目标平台和工具链变化
+- **渐进兼容** — 优先覆盖常用 Unix/POSIX 工作流，并逐步扩展 BusyBox/GNU 兼容行为
 - **跨平台** — 支持 Linux、macOS 和 Windows
 - **模块化设计** — 通过 Applet 机制轻松扩展
 - **符号链接支持** — 通过符号链接直接调用各 Applet
