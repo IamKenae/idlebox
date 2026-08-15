@@ -6,7 +6,7 @@
 //! the `-s`/`-p`/`-u`/`-g`/`-D` columns are enabled.
 
 #[cfg(unix)]
-use crate::core::unix_ffi::{raw_getgrgid, raw_getpwuid};
+use crate::core::unix_ffi::{lock_account_db, raw_getgrgid, raw_getpwuid};
 use crate::core::{human_size, Applet};
 use std::cmp::Ordering;
 #[cfg(unix)]
@@ -1109,6 +1109,7 @@ fn c_char_to_string(ptr: *const c_char) -> String {
 
 #[cfg(unix)]
 fn get_username_by_uid(uid: u32) -> Option<String> {
+    let _account_db_guard = lock_account_db();
     let ptr = unsafe { raw_getpwuid(uid) };
     if ptr.is_null() {
         return None;
@@ -1124,6 +1125,7 @@ fn get_username_by_uid(uid: u32) -> Option<String> {
 
 #[cfg(unix)]
 fn get_group_name_by_gid(gid: u32) -> Option<String> {
+    let _account_db_guard = lock_account_db();
     let ptr = unsafe { raw_getgrgid(gid) };
     if ptr.is_null() {
         return None;
