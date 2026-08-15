@@ -87,7 +87,7 @@ BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this
 | `whoami` | Print effective user name | POSIX `geteuid()` + `getpwuid()` FFI |
 | `su` | Switch user | `-l` login shell, `-c` command, `-s` shell; root-only |
 | `relax` | IdleBox special: take a break and relax | A unique relaxation experience, embodying the "Idle" spirit |
-| `--install` | Automated applet deployment via symlinks | Creates symlinks for all applets in a target directory; defaults to `/usr/local/bin` |
+| `--install` | Automated applet launcher deployment | Creates symlinks on Unix; on Windows creates `.exe` launchers using a hard link with a copy fallback |
 
 ---
 
@@ -114,11 +114,11 @@ idlebox echo "Hello, IdleBox!"
 idlebox cat -n README.md
 idlebox ls --color=auto -lah
 
-# Automated install (create symlinks for all applets)
-idlebox --install              # Install to /usr/local/bin
-idlebox --install /tmp/bin     # Install to a custom directory
+# Automated install (create launchers for all applets)
+idlebox --install              # Unix: /usr/local/bin; Windows: %LOCALAPPDATA%\IdleBox\bin
+idlebox --install ./bin        # Install to a custom directory
 
-# Via symlink
+# Via symlink on Unix
 cd target/release
 ln -s idlebox echo
 ln -s idlebox ls
