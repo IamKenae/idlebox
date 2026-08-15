@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
-[![Linux x86_64 ELF size](https://img.shields.io/badge/size-~602_KiB-green.svg)](https://github.com/IamKenae/idlebox/actions/workflows/size.yml)
+[![Linux x86_64 ELF size](https://img.shields.io/badge/size-~640_KiB-green.svg)](https://github.com/IamKenae/idlebox/actions/workflows/size.yml)
 
 [🇨🇳 中文文档](README-zh.md)
 
@@ -51,9 +51,9 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 
 | Platform | Status | Notes |
 |----------|--------|-------|
-| Linux | Full | All 52 applets supported |
-| macOS | Full | All 52 applets supported |
-| Windows | Partial | 35+ applets fully supported; Unix-only applets (chmod, chown, chgrp, id, su) gracefully degrade |
+| Linux | Full | All 53 applets supported |
+| macOS | Full | All 53 applets supported |
+| Windows | Partial | 36+ applets fully supported; Unix-only applets (chmod, chown, chgrp, id, su) gracefully degrade |
 
 ---
 
@@ -71,6 +71,7 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 | `dirname` | Strip the last component from names | Multiple operands and NUL-separated output |
 | `cat` | Concatenate files and print to standard output | Supports `-n` line numbers, `-b` non-blank numbering, `-A` show invisibles, stdin pipe |
 | `ls` | List directory contents | **ANSI colorized output**: dirs in blue, executables in green, archives in red, symlinks in cyan; supports `-l` long format, `-a` hidden files, `-h` human-readable sizes |
+| `tree` | List directory contents in a tree-like format | Connector-glyph layout with `--charset` UTF-8/ASCII, `-L` depth, repeatable `-P`/`-I` patterns (`*`, `?`, `[set]`, `[^set]`, ranges, `|` alternation), `-s`/`-h`/`-p`/`-u`/`-g`/`-D` (UTC) columns, `--dirsfirst`/`-r`/`-t` sorting, JSON (`-J`), XML (`-X`) and HTML (`-H`) output, and an `-o` that stages before it publishes |
 | `mkdir` | Create directories | Supports `-p` for nested creation, multiple directories in one call |
 | `rm` | Remove files or directories | Supports `-r` recursive, `-f` force, combined `-rf` |
 | `cp` | Copy files and directories | Supports `-r` recursive, `-f` force, multi-source to directory |
