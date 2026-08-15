@@ -312,7 +312,7 @@ fn get_groups() -> Vec<u32> {
     buf
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn get_supplementary_gids_by_name(username: &str, primary_gid: u32) -> Vec<u32> {
     let c_name = match std::ffi::CString::new(username) {
         Ok(n) => n,
@@ -339,6 +339,33 @@ fn get_supplementary_gids_by_name(username: &str, primary_gid: u32) -> Vec<u32> 
     }
     buf.truncate(ngroups as usize);
     buf.iter().map(|&g| g as u32).collect()
+}
+
+#[cfg(target_os = "macos")]
+fn get_supplementary_gids_by_name(username: &str, primary_gid: u32) -> Vec<u32> {
+    let c_name = match std::ffi::CString::new(username) {
+        Ok(name) => name,
+        Err(_) => return vec![],
+    };
+    let mut groups = std::ptr::null_mut();
+    let count = unsafe { raw_getgrouplist_2(c_name.as_ptr(), primary_gid, &mut groups) };
+    if count < 0 {
+        if !groups.is_null() {
+            unsafe {
+                raw_free(groups.cast());
+            }
+        }
+        return vec![];
+    }
+    if groups.is_null() {
+        return vec![];
+    }
+
+    let result = unsafe { std::slice::from_raw_parts(groups, count as usize).to_vec() };
+    unsafe {
+        raw_free(groups.cast());
+    }
+    result
 }
 
 #[cfg(unix)]
@@ -379,6 +406,15 @@ extern "C" {
     #[link_name = "getgroups"]
     fn raw_getgroups(size: i32, list: *mut u32) -> i32;
 
+    #[cfg(not(target_os = "macos"))]
     #[link_name = "getgrouplist"]
     fn raw_getgrouplist(user: *const i8, group: u32, groups: *mut i32, ngroups: *mut i32) -> i32;
+
+    #[cfg(target_os = "macos")]
+    #[link_name = "getgrouplist_2"]
+    fn raw_getgrouplist_2(user: *const i8, group: u32, groups: *mut *mut u32) -> i32;
+
+    #[cfg(target_os = "macos")]
+    #[link_name = "free"]
+    fn raw_free(ptr: *mut std::ffi::c_void);
 }
