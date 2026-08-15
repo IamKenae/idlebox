@@ -248,6 +248,7 @@ fn test_ls_all_flag() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_install_creates_symlinks() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_install");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -272,6 +273,7 @@ fn test_install_creates_symlinks() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_install_overwrites_existing() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_install_overwrite");
     let _ = fs::remove_dir_all(&tmp_dir);
@@ -293,6 +295,7 @@ fn test_install_overwrites_existing() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_install_creates_directory() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_install_newdir").join("sub");
     let _ = fs::remove_dir_all(tmp_dir.parent().unwrap());
@@ -310,6 +313,7 @@ fn test_install_creates_directory() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_install_symlink_invokes_applet() {
     let tmp_dir = std::env::temp_dir().join("idlebox_test_install_invoke");
     let _ = fs::remove_dir_all(&tmp_dir);
