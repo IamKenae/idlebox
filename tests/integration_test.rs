@@ -5009,6 +5009,63 @@ fn test_tree_symlink_is_shown_but_not_followed() {
     let _ = fs::remove_dir_all(&tmp_dir);
 }
 
+/// A root that fails to stat must not leave a dangling comma behind: with
+/// `--noreport` nothing follows it to absorb one.
+#[test]
+fn test_tree_json_stays_valid_when_a_root_fails() {
+    let tmp_dir = tree_fixture("jsonfail");
+    let missing = std::env::temp_dir().join("idlebox_test_tree_jsonfail_missing");
+    let _ = fs::remove_dir_all(&missing);
+
+    let output = run_tree(&[
+        "-J",
+        "--noreport",
+        tmp_dir.to_str().unwrap(),
+        missing.to_str().unwrap(),
+    ]);
+
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("a_dir"));
+    // The last emitted value must be followed by `]`, never by `,`.
+    let compact: String = stdout.chars().filter(|c| !c.is_whitespace()).collect();
+    assert!(
+        !compact.contains(",]"),
+        "trailing comma in JSON: {}",
+        stdout
+    );
+    assert!(compact.ends_with("]"));
+
+    // The failing root is reported on stderr, not silently dropped.
+    assert!(String::from_utf8_lossy(&output.stderr).contains("tree: "));
+
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
+/// A symlink named on the command line is followed, the way `ls link` lists the
+/// directory; symlinks found *inside* the tree are still left unexpanded.
+#[test]
+#[cfg(unix)]
+fn test_tree_follows_root_symlink() {
+    let tmp_dir = tree_fixture("rootlink");
+    let link = std::env::temp_dir().join("idlebox_test_tree_rootlink_link");
+    let _ = fs::remove_file(&link);
+    std::os::unix::fs::symlink(tmp_dir.join("a_dir"), &link).unwrap();
+
+    let output = run_tree(&[link.to_str().unwrap()]);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // The contents of a_dir, reached through the link.
+    assert!(stdout.contains("nested.rs"));
+    assert!(stdout.contains("deep.txt"));
+    assert!(stdout.contains("-> "));
+    assert!(!stdout.contains("0 directories, 0 files"));
+
+    let _ = fs::remove_file(&link);
+    let _ = fs::remove_dir_all(&tmp_dir);
+}
+
 #[test]
 #[cfg(unix)]
 fn test_tree_reports_unreadable_directory() {
@@ -5016,6 +5073,14 @@ fn test_tree_reports_unreadable_directory() {
     let locked = tmp_dir.join("locked");
     fs::create_dir_all(locked.join("inner")).unwrap();
     fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+    // root ignores the mode bits entirely, so there is nothing to observe. CI
+    // runs the musl job as root inside a container; skip rather than fail there.
+    if fs::read_dir(&locked).is_ok() {
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        let _ = fs::remove_dir_all(&tmp_dir);
+        return;
+    }
 
     let output = run_tree(&[tmp_dir.to_str().unwrap()]);
 

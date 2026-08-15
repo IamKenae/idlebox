@@ -22,7 +22,7 @@ use std::os::unix::fs::{FileTypeExt, MetadataExt};
 pub struct TreeApplet;
 
 /// Which serialization the tree is rendered as.
-#[derive(Default, PartialEq)]
+#[derive(Default)]
 enum Format {
     #[default]
     Text,
@@ -106,7 +106,6 @@ struct Entry {
     path: PathBuf,
     meta: Metadata,
     is_dir: bool,
-    mtime: SystemTime,
 }
 
 impl Applet for TreeApplet {
@@ -264,7 +263,7 @@ impl Applet for TreeApplet {
         println!("  -a              Print all files, including hidden ones");
         println!("  -d              List directories only");
         println!("  -L LEVEL        Descend only LEVEL directories deep (LEVEL >= 1)");
-        println!("  -f              Print the full path prefix for each entry");
+        println!("  -f              Print the full path prefix for each entry (text output only)");
         println!("  -I PATTERN      Do not list entries matching PATTERN");
         println!("  -P PATTERN      List only files matching PATTERN");
         println!("  -i              Print indentation only, without the connector lines");
@@ -314,13 +313,22 @@ impl TreeApplet {
             }
             Format::Json => {
                 writeln!(out, "[")?;
-                for (idx, path) in paths.iter().enumerate() {
-                    let trailing = if idx + 1 == paths.len() && opts.no_report {
-                        ""
+                // A root that fails to stat writes nothing, so the separator has
+                // to be driven by what was actually emitted rather than by the
+                // index — otherwise a failing last path leaves a trailing comma.
+                let mut wrote_any = false;
+                for path in paths {
+                    if Self::json_root(path, wrote_any, opts, &mut st, out)? {
+                        wrote_any = true;
+                    }
+                }
+                if wrote_any {
+                    // Terminate the last object, with a comma if the report follows.
+                    if opts.no_report {
+                        writeln!(out)?;
                     } else {
-                        ","
-                    };
-                    Self::json_root(path, trailing, opts, &mut st, out)?;
+                        writeln!(out, ",")?;
+                    }
                 }
                 if !opts.no_report {
                     writeln!(
@@ -392,8 +400,8 @@ impl TreeApplet {
         out: &mut dyn Write,
     ) -> io::Result<()> {
         let root = Path::new(path);
-        let meta = match fs::symlink_metadata(root) {
-            Ok(m) => m,
+        let (meta, link) = match Self::root_meta(root) {
+            Ok(pair) => pair,
             Err(e) => {
                 eprintln!("tree: {}: {}", path, e);
                 st.failed = true;
@@ -406,13 +414,16 @@ impl TreeApplet {
         if opts.classify {
             Self::write_marker(&meta, root, out)?;
         }
+        if let Some(target) = &link {
+            write!(out, " -> {}", target.display())?;
+        }
 
         if !meta.is_dir() {
             writeln!(out)?;
             return Ok(());
         }
 
-        match fs::read_dir(root).and_then(|_| Self::read_children(root, opts)) {
+        match Self::read_children(root, opts, st) {
             Ok(children) => {
                 writeln!(out)?;
                 Self::walk_text(&children, "", 1, opts, st, out)?;
@@ -437,7 +448,7 @@ impl TreeApplet {
             let is_last = idx + 1 == children.len();
             Self::count(entry, st);
 
-            let sub = Self::descend(entry, depth, opts);
+            let sub = Self::descend(entry, depth, opts, st);
 
             write!(out, "{}", prefix)?;
             write!(out, "{}", if is_last { opts.last } else { opts.branch })?;
@@ -466,22 +477,29 @@ impl TreeApplet {
 
     // -- json ------------------------------------------------------------
 
+    /// Writes one root object, without the newline that terminates it — the
+    /// caller adds that once it knows whether a comma is needed. `separator`
+    /// closes off the previous object. Returns whether anything was written.
     fn json_root(
         path: &str,
-        trailing: &str,
+        separator: bool,
         opts: &Options,
         st: &mut State,
         out: &mut dyn Write,
-    ) -> io::Result<()> {
+    ) -> io::Result<bool> {
         let root = Path::new(path);
-        let meta = match fs::symlink_metadata(root) {
-            Ok(m) => m,
+        let (meta, _) = match Self::root_meta(root) {
+            Ok(pair) => pair,
             Err(e) => {
                 eprintln!("tree: {}: {}", path, e);
                 st.failed = true;
-                return Ok(());
+                return Ok(false);
             }
         };
+
+        if separator {
+            writeln!(out, ",")?;
+        }
 
         let kind = if meta.is_dir() { "directory" } else { "file" };
         write!(
@@ -493,22 +511,22 @@ impl TreeApplet {
         Self::json_meta(&meta, opts, out)?;
 
         if !meta.is_dir() {
-            writeln!(out, "}}{}", trailing)?;
-            return Ok(());
+            write!(out, "}}")?;
+            return Ok(true);
         }
 
-        match Self::read_children(root, opts) {
+        match Self::read_children(root, opts, st) {
             Ok(children) => {
                 writeln!(out, ",\"contents\":[")?;
                 Self::walk_json(&children, 4, 1, opts, st, out)?;
-                writeln!(out, "  ]}}{}", trailing)?;
+                write!(out, "  ]}}")?;
             }
             Err(_) => {
-                writeln!(out, ",\"error\":\"opening dir\"}}{}", trailing)?;
+                write!(out, ",\"error\":\"opening dir\"}}")?;
                 st.failed = true;
             }
         }
-        Ok(())
+        Ok(true)
     }
 
     fn walk_json(
@@ -533,7 +551,7 @@ impl TreeApplet {
             )?;
             Self::json_meta(&entry.meta, opts, out)?;
 
-            match Self::descend(entry, depth, opts) {
+            match Self::descend(entry, depth, opts, st) {
                 Some(Err(_)) => {
                     writeln!(out, ",\"error\":\"opening dir\"}}{}", trailing)?;
                     st.failed = true;
@@ -573,8 +591,8 @@ impl TreeApplet {
 
     fn xml_root(path: &str, opts: &Options, st: &mut State, out: &mut dyn Write) -> io::Result<()> {
         let root = Path::new(path);
-        let meta = match fs::symlink_metadata(root) {
-            Ok(m) => m,
+        let (meta, _) = match Self::root_meta(root) {
+            Ok(pair) => pair,
             Err(e) => {
                 eprintln!("tree: {}: {}", path, e);
                 st.failed = true;
@@ -591,7 +609,7 @@ impl TreeApplet {
             return Ok(());
         }
 
-        match Self::read_children(root, opts) {
+        match Self::read_children(root, opts, st) {
             Ok(children) => {
                 writeln!(out, ">")?;
                 Self::walk_xml(&children, 4, 1, opts, st, out)?;
@@ -621,7 +639,7 @@ impl TreeApplet {
             write!(out, "<{} name=\"{}\"", tag, xml_escape(&entry.name))?;
             Self::xml_meta(&entry.meta, opts, out)?;
 
-            match Self::descend(entry, depth, opts) {
+            match Self::descend(entry, depth, opts, st) {
                 Some(Err(_)) => {
                     writeln!(out, " error=\"opening dir\"></{}>", tag)?;
                     st.failed = true;
@@ -676,8 +694,8 @@ impl TreeApplet {
         out: &mut dyn Write,
     ) -> io::Result<()> {
         let root = Path::new(path);
-        let meta = match fs::symlink_metadata(root) {
-            Ok(m) => m,
+        let (meta, _) = match Self::root_meta(root) {
+            Ok(pair) => pair,
             Err(e) => {
                 eprintln!("tree: {}: {}", path, e);
                 st.failed = true;
@@ -695,7 +713,7 @@ impl TreeApplet {
         )?;
 
         if meta.is_dir() {
-            match Self::read_children(root, opts) {
+            match Self::read_children(root, opts, st) {
                 Ok(children) => Self::walk_html(&children, "", 1, 1, opts, st, out)?,
                 Err(_) => {
                     writeln!(out, "[error opening dir]<br>")?;
@@ -736,7 +754,7 @@ impl TreeApplet {
                 xml_escape(&entry.name)
             )?;
 
-            match Self::descend(entry, depth, opts) {
+            match Self::descend(entry, depth, opts, st) {
                 Some(Err(_)) => {
                     writeln!(out, " [error opening dir]<br>")?;
                     st.failed = true;
@@ -772,7 +790,12 @@ impl TreeApplet {
     /// Read a directory's children ahead of printing its own line, so an
     /// unreadable directory can be flagged inline. Returns `None` when the entry
     /// is not a directory or the depth limit stops the descent.
-    fn descend(entry: &Entry, depth: usize, opts: &Options) -> Option<io::Result<Vec<Entry>>> {
+    fn descend(
+        entry: &Entry,
+        depth: usize,
+        opts: &Options,
+        st: &mut State,
+    ) -> Option<io::Result<Vec<Entry>>> {
         if !entry.is_dir {
             return None;
         }
@@ -781,10 +804,22 @@ impl TreeApplet {
                 return None;
             }
         }
-        Some(Self::read_children(&entry.path, opts))
+        Some(Self::read_children(&entry.path, opts, st))
     }
 
-    fn read_children(dir: &Path, opts: &Options) -> io::Result<Vec<Entry>> {
+    /// Metadata for a path named on the command line. Unlike entries inside the
+    /// tree, a root symlink is followed — `tree link-to-dir` should list the
+    /// directory the way `ls link-to-dir` does — but the link target is still
+    /// reported alongside the name.
+    fn root_meta(root: &Path) -> io::Result<(Metadata, Option<PathBuf>)> {
+        let link = match fs::symlink_metadata(root) {
+            Ok(m) if m.file_type().is_symlink() => fs::read_link(root).ok(),
+            _ => None,
+        };
+        Ok((fs::metadata(root)?, link))
+    }
+
+    fn read_children(dir: &Path, opts: &Options, st: &mut State) -> io::Result<Vec<Entry>> {
         let mut entries = Vec::new();
 
         for item in fs::read_dir(dir)? {
@@ -803,7 +838,13 @@ impl TreeApplet {
             let path = item.path();
             let meta = match fs::symlink_metadata(&path) {
                 Ok(m) => m,
-                Err(_) => continue,
+                // An entry that vanished mid-walk, or one we may not stat, is
+                // dropped from the listing — but never silently.
+                Err(e) => {
+                    eprintln!("tree: {}: {}", path.display(), e);
+                    st.failed = true;
+                    continue;
+                }
             };
             let is_dir = meta.is_dir();
 
@@ -817,13 +858,11 @@ impl TreeApplet {
                 }
             }
 
-            let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
             entries.push(Entry {
                 name,
                 path,
                 meta,
                 is_dir,
-                mtime,
             });
         }
 
@@ -844,7 +883,9 @@ impl TreeApplet {
             }
 
             let ord = if opts.time_sort {
-                a.mtime.cmp(&b.mtime).then_with(|| a.name.cmp(&b.name))
+                entry_mtime(a)
+                    .cmp(&entry_mtime(b))
+                    .then_with(|| a.name.cmp(&b.name))
             } else {
                 a.name.cmp(&b.name)
             };
@@ -1014,6 +1055,12 @@ fn group_name(_meta: &Metadata) -> String {
 
 fn modified_field(meta: &Metadata) -> String {
     format_time(meta.modified().unwrap_or(SystemTime::UNIX_EPOCH))
+}
+
+/// Sort key for `-t`. Reads the already-cached `stat` buffer, so calling it from
+/// the comparator costs no syscalls.
+fn entry_mtime(entry: &Entry) -> SystemTime {
+    entry.meta.modified().unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
 #[cfg(unix)]
