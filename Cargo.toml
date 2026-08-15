@@ -26,3 +26,6 @@ overflow-checks = false
 [profile.release.build-override]
 opt-level = "z"
 codegen-units = 1
+
+[dev-dependencies]
+tempfile = "3.27.0"
