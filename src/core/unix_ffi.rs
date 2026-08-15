@@ -4,6 +4,18 @@
 //! the same ABI-compatible Rust type for each C function.
 
 use std::ffi::c_char;
+use std::sync::{Mutex, MutexGuard};
+
+// The legacy passwd/group lookup APIs return pointers to shared storage and
+// are not required to be thread-safe. Rust's test harness runs applet tests in
+// parallel, so serialize each lookup until its result has been copied.
+static ACCOUNT_DB_LOCK: Mutex<()> = Mutex::new(());
+
+pub(crate) fn lock_account_db() -> MutexGuard<'static, ()> {
+    ACCOUNT_DB_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 #[repr(C)]

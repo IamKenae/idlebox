@@ -1,5 +1,5 @@
 #[cfg(unix)]
-use crate::core::unix_ffi::{raw_getgrnam, raw_getpwnam, raw_getpwuid};
+use crate::core::unix_ffi::{lock_account_db, raw_getgrnam, raw_getpwnam, raw_getpwuid};
 use crate::core::Applet;
 
 #[cfg(unix)]
@@ -124,7 +124,7 @@ fn parse_owner_spec(spec: &str) -> Result<(u32, u32), String> {
         let (resolved_uid, primary_gid) = if user_part.is_empty() {
             (u32::MAX, None)
         } else {
-            let (uid, gid) = resolve_user(user_part)?;
+            let (uid, gid) = resolve_user(user_part, group_part.is_empty())?;
             (uid, gid)
         };
 
@@ -136,14 +136,18 @@ fn parse_owner_spec(spec: &str) -> Result<(u32, u32), String> {
 
         Ok((resolved_uid, resolved_gid))
     } else {
-        let (resolved_uid, _) = resolve_user(spec)?;
+        let (resolved_uid, _) = resolve_user(spec, false)?;
         Ok((resolved_uid, u32::MAX))
     }
 }
 
 #[cfg(unix)]
-fn resolve_user(s: &str) -> Result<(u32, Option<u32>), String> {
+fn resolve_user(s: &str, need_primary_gid: bool) -> Result<(u32, Option<u32>), String> {
     if let Ok(n) = s.parse::<u32>() {
+        if !need_primary_gid {
+            return Ok((n, None));
+        }
+        let _account_db_guard = lock_account_db();
         let ptr = unsafe { raw_getpwuid(n) };
         let primary_gid = if ptr.is_null() {
             None
@@ -153,6 +157,7 @@ fn resolve_user(s: &str) -> Result<(u32, Option<u32>), String> {
         return Ok((n, primary_gid));
     }
     let c_name = CString::new(s).map_err(|_| format!("invalid user name: '{}'", s))?;
+    let _account_db_guard = lock_account_db();
     let ptr = unsafe { raw_getpwnam(c_name.as_ptr()) };
     if ptr.is_null() {
         return Err(format!("invalid user: '{}'", s));
@@ -166,6 +171,7 @@ fn resolve_gid(s: &str) -> Result<u32, String> {
         return Ok(n);
     }
     let c_name = CString::new(s).map_err(|_| format!("invalid group name: '{}'", s))?;
+    let _account_db_guard = lock_account_db();
     let ptr = unsafe { raw_getgrnam(c_name.as_ptr()) };
     if ptr.is_null() {
         return Err(format!("invalid group: '{}'", s));
@@ -216,7 +222,8 @@ extern "C" {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use super::parse_owner_spec;
+    use super::{parse_owner_spec, resolve_user};
+    use std::sync::{Arc, Barrier};
 
     #[test]
     fn owner_only_keeps_group_unchanged() {
@@ -231,5 +238,28 @@ mod tests {
     #[test]
     fn explicit_owner_and_group_are_both_applied() {
         assert_eq!(parse_owner_spec("12345:23456").unwrap(), (12345, 23456));
+    }
+
+    #[test]
+    fn serializes_legacy_account_lookups() {
+        const THREADS: usize = 8;
+        const LOOKUPS_PER_THREAD: usize = 64;
+
+        let barrier = Arc::new(Barrier::new(THREADS));
+        let handles: Vec<_> = (0..THREADS)
+            .map(|_| {
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    for _ in 0..LOOKUPS_PER_THREAD {
+                        let _ = resolve_user("0", true);
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
     }
 }
