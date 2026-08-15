@@ -45,37 +45,55 @@ impl Applet for FreeApplet {
         let mut out = stdout.lock();
 
         if human_readable {
-            writeln!(out, "{:<8} {:>12} {:>12} {:>12} {:>12} {:>12} {:>12}",
-                "", "total", "used", "free", "shared", "buff/cache", "available")?;
-            writeln!(out, "{:<8} {:>12} {:>12} {:>12} {:>12} {:>12} {:>12}",
+            writeln!(
+                out,
+                "{:<8} {:>12} {:>12} {:>12} {:>12} {:>12} {:>12}",
+                "", "total", "used", "free", "shared", "buff/cache", "available"
+            )?;
+            writeln!(
+                out,
+                "{:<8} {:>12} {:>12} {:>12} {:>12} {:>12} {:>12}",
                 "Mem:",
                 human_size_kb(meminfo.mem_total),
                 human_size_kb(meminfo.mem_total - meminfo.mem_available),
                 human_size_kb(meminfo.mem_free),
                 human_size_kb(meminfo.mem_shared),
                 human_size_kb(meminfo.buffers + meminfo.cached),
-                human_size_kb(meminfo.mem_available))?;
-            writeln!(out, "{:<8} {:>12} {:>12} {:>12}",
+                human_size_kb(meminfo.mem_available)
+            )?;
+            writeln!(
+                out,
+                "{:<8} {:>12} {:>12} {:>12}",
                 "Swap:",
                 human_size_kb(meminfo.swap_total),
                 human_size_kb(meminfo.swap_total - meminfo.swap_free),
-                human_size_kb(meminfo.swap_free))?;
+                human_size_kb(meminfo.swap_free)
+            )?;
         } else {
-            writeln!(out, "{:<8} {:>12} {:>12} {:>12} {:>12} {:>12} {:>12}",
-                "", "total", "used", "free", "shared", "buff/cache", "available")?;
-            writeln!(out, "{:<8} {:>12} {:>12} {:>12} {:>12} {:>12} {:>12}",
+            writeln!(
+                out,
+                "{:<8} {:>12} {:>12} {:>12} {:>12} {:>12} {:>12}",
+                "", "total", "used", "free", "shared", "buff/cache", "available"
+            )?;
+            writeln!(
+                out,
+                "{:<8} {:>12} {:>12} {:>12} {:>12} {:>12} {:>12}",
                 "Mem:",
                 meminfo.mem_total,
                 meminfo.mem_total - meminfo.mem_available,
                 meminfo.mem_free,
                 meminfo.mem_shared,
                 meminfo.buffers + meminfo.cached,
-                meminfo.mem_available)?;
-            writeln!(out, "{:<8} {:>12} {:>12} {:>12}",
+                meminfo.mem_available
+            )?;
+            writeln!(
+                out,
+                "{:<8} {:>12} {:>12} {:>12}",
                 "Swap:",
                 meminfo.swap_total,
                 meminfo.swap_total - meminfo.swap_free,
-                meminfo.swap_free)?;
+                meminfo.swap_free
+            )?;
         }
 
         Ok(0)
@@ -100,21 +118,30 @@ impl Applet for FreeApplet {
         let mut out = stdout.lock();
 
         if human_readable {
-            writeln!(out, "{:<8} {:>12} {:>12} {:>12}",
-                "", "total", "used", "free")?;
-            writeln!(out, "{:<8} {:>12} {:>12} {:>12}",
+            writeln!(
+                out,
+                "{:<8} {:>12} {:>12} {:>12}",
+                "", "total", "used", "free"
+            )?;
+            writeln!(
+                out,
+                "{:<8} {:>12} {:>12} {:>12}",
                 "Mem:",
                 human_size_kb(total_kb),
                 human_size_kb(used_kb),
-                human_size_kb(free_kb))?;
+                human_size_kb(free_kb)
+            )?;
         } else {
-            writeln!(out, "{:<8} {:>12} {:>12} {:>12}",
-                "", "total", "used", "free")?;
-            writeln!(out, "{:<8} {:>12} {:>12} {:>12}",
-                "Mem:",
-                total_kb,
-                used_kb,
-                free_kb)?;
+            writeln!(
+                out,
+                "{:<8} {:>12} {:>12} {:>12}",
+                "", "total", "used", "free"
+            )?;
+            writeln!(
+                out,
+                "{:<8} {:>12} {:>12} {:>12}",
+                "Mem:", total_kb, used_kb, free_kb
+            )?;
         }
 
         Ok(0)
@@ -124,15 +151,22 @@ impl Applet for FreeApplet {
     fn run(&self, _args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         let stdout = io::stdout();
         let mut out = stdout.lock();
-        writeln!(out, "{:<8} {:>12} {:>12} {:>12}", "", "total", "used", "free")?;
+        writeln!(
+            out,
+            "{:<8} {:>12} {:>12} {:>12}",
+            "", "total", "used", "free"
+        )?;
 
         let (total, avail) = get_windows_memory()?;
         let used = total.saturating_sub(avail);
-        writeln!(out, "{:<8} {:>12} {:>12} {:>12}",
+        writeln!(
+            out,
+            "{:<8} {:>12} {:>12} {:>12}",
             "Mem:",
             human_size_kb(total / 1024),
             human_size_kb(used / 1024),
-            human_size_kb(avail / 1024))?;
+            human_size_kb(avail / 1024)
+        )?;
 
         Ok(0)
     }
@@ -218,20 +252,25 @@ fn parse_meminfo() -> Result<MemInfo, io::Error> {
 #[cfg(target_os = "macos")]
 fn get_macos_memory() -> Result<(u64, u64), io::Error> {
     let page_size_output = std::process::Command::new("sysctl")
-        .arg("-n").arg("hw.pagesize")
+        .arg("-n")
+        .arg("hw.pagesize")
         .output()?;
     let page_size: u64 = String::from_utf8_lossy(&page_size_output.stdout)
-        .trim().parse().unwrap_or(4096);
+        .trim()
+        .parse()
+        .unwrap_or(4096);
 
     let total_output = std::process::Command::new("sysctl")
-        .arg("-n").arg("hw.memsize")
+        .arg("-n")
+        .arg("hw.memsize")
         .output()?;
     let total_bytes: u64 = String::from_utf8_lossy(&total_output.stdout)
-        .trim().parse().unwrap_or(0);
+        .trim()
+        .parse()
+        .unwrap_or(0);
     let total_kb = total_bytes / 1024;
 
-    let vm_output = std::process::Command::new("vm_stat")
-        .output()?;
+    let vm_output = std::process::Command::new("vm_stat").output()?;
     let vm_str = String::from_utf8_lossy(&vm_output.stdout);
     let mut free_pages: u64 = 0;
     for line in vm_str.lines() {
@@ -249,7 +288,12 @@ fn get_macos_memory() -> Result<(u64, u64), io::Error> {
 #[cfg(windows)]
 fn get_windows_memory() -> Result<(u64, u64), io::Error> {
     let output = std::process::Command::new("wmic")
-        .args(&["OS", "get", "TotalVisibleMemorySize,FreePhysicalMemory", "/Value"])
+        .args([
+            "OS",
+            "get",
+            "TotalVisibleMemorySize,FreePhysicalMemory",
+            "/Value",
+        ])
         .output()?;
     let stdout_str = String::from_utf8_lossy(&output.stdout);
     let mut total: u64 = 0;

@@ -1,0 +1,70 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-latest
+            artifact_name: idlebox-linux-x86_64
+            binary_name: idlebox
+            platform_lint: false
+          - name: macOS native
+            os: macos-latest
+            artifact_name: idlebox-macos-native
+            binary_name: idlebox
+            platform_lint: true
+          - name: Windows x86_64
+            os: windows-latest
+            artifact_name: idlebox-windows-x86_64
+            binary_name: idlebox.exe
+            platform_lint: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Lint platform-specific code
+        if: matrix.platform_lint
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test all targets
+        run: cargo test --all-targets --verbose
+
+      - name: Build release binary
+        run: cargo build --release --verbose
+
+      - name: Upload release binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: target/release/${{ matrix.binary_name }}
+          retention-days: 14

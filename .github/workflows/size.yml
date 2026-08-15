@@ -1,0 +1,80 @@
+name: Binary Size
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  GLIBC_MAX_BYTES: 819200
+  MUSL_MAX_BYTES: 921600
+
+jobs:
+  size-budget:
+    name: Linux release budgets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@1.85.0
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build glibc release
+        env:
+          CARGO_TARGET_DIR: target/size-glibc
+        run: cargo build --release
+
+      - name: Build musl release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/idlebox-size-musl"
+          docker run --rm \
+            --mount "type=bind,src=${GITHUB_WORKSPACE},dst=/src,readonly" \
+            --mount "type=bind,src=${RUNNER_TEMP}/idlebox-size-musl,dst=/target" \
+            --env CARGO_TARGET_DIR=/target \
+            --workdir /src \
+            rust:1.85-alpine \
+            cargo build --release
+
+      - name: Enforce size budgets
+        shell: bash
+        run: |
+          set -euo pipefail
+          glibc_bytes=$(wc -c < target/size-glibc/release/idlebox)
+          musl_bytes=$(wc -c < "${RUNNER_TEMP}/idlebox-size-musl/release/idlebox")
+          glibc_remaining=$((GLIBC_MAX_BYTES - glibc_bytes))
+          musl_remaining=$((MUSL_MAX_BYTES - musl_bytes))
+
+          {
+            echo "## IdleBox Linux release size"
+            echo
+            echo "| Build | Bytes | Budget | Remaining |"
+            echo "|---|---:|---:|---:|"
+            echo "| glibc | ${glibc_bytes} | ${GLIBC_MAX_BYTES} | ${glibc_remaining} |"
+            echo "| musl | ${musl_bytes} | ${MUSL_MAX_BYTES} | ${musl_remaining} |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          failed=0
+          if (( glibc_bytes > GLIBC_MAX_BYTES )); then
+            echo "::error::glibc release is ${glibc_bytes} bytes; budget is ${GLIBC_MAX_BYTES}"
+            failed=1
+          fi
+          if (( musl_bytes > MUSL_MAX_BYTES )); then
+            echo "::error::musl release is ${musl_bytes} bytes; budget is ${MUSL_MAX_BYTES}"
+            failed=1
+          fi
+          exit "${failed}"

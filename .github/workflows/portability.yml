@@ -1,0 +1,68 @@
+name: Portability
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cross-targets:
+    name: ARM Linux & non-native Windows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: aarch64-unknown-linux-gnu,aarch64-unknown-linux-musl,armv7-unknown-linux-gnueabihf,armv7-unknown-linux-musleabihf,aarch64-pc-windows-msvc,i686-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Lint cross targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for target in \
+            aarch64-unknown-linux-gnu \
+            aarch64-unknown-linux-musl \
+            armv7-unknown-linux-gnueabihf \
+            armv7-unknown-linux-musleabihf \
+            aarch64-pc-windows-msvc \
+            i686-pc-windows-msvc
+          do
+            echo "::group::${target}"
+            cargo clippy --all-targets --target "${target}" -- -D warnings
+            echo "::endgroup::"
+          done
+
+  minimum-toolchain-musl:
+    name: Rust 1.85 & Alpine/musl
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Test and build in Alpine
+        run: |
+          docker run --rm \
+            --mount "type=bind,src=${GITHUB_WORKSPACE},dst=/src,readonly" \
+            --env CARGO_TARGET_DIR=/tmp/idlebox-target \
+            --workdir /src \
+            rust:1.85-alpine \
+            sh -eu -c 'cargo test --all-targets && cargo build --release'

@@ -65,11 +65,9 @@ impl Applet for ReadlinkApplet {
 
         for (idx, path) in paths.iter().enumerate() {
             let result = if canonicalize {
-                fs::canonicalize(path)
-                    .map(|p| p.to_string_lossy().to_string())
+                fs::canonicalize(path).map(|p| p.to_string_lossy().to_string())
             } else {
-                fs::read_link(path)
-                    .map(|p| p.to_string_lossy().to_string())
+                fs::read_link(path).map(|p| p.to_string_lossy().to_string())
             };
 
             match result {
@@ -87,7 +85,11 @@ impl Applet for ReadlinkApplet {
             }
         }
 
-        if failed { Ok(1) } else { Ok(0) }
+        if failed {
+            Ok(1)
+        } else {
+            Ok(0)
+        }
     }
 
     fn help(&self) {

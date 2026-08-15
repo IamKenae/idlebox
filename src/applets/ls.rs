@@ -78,7 +78,14 @@ impl Applet for LsApplet {
                 writeln!(out, "{}:", path)?;
             }
 
-            if let Err(e) = Self::list_path(path, &mut out, show_all, long_format, human_readable, use_color) {
+            if let Err(e) = Self::list_path(
+                path,
+                &mut out,
+                show_all,
+                long_format,
+                human_readable,
+                use_color,
+            ) {
                 eprintln!("ls: cannot access '{}': {}", path, e);
                 return Ok(1);
             }
@@ -121,12 +128,9 @@ impl LsApplet {
         use_color: bool,
     ) -> io::Result<()> {
         let path = Path::new(path);
+        let metadata = fs::symlink_metadata(path)?;
 
-        if !path.exists() {
-            return Err(io::Error::new(io::ErrorKind::NotFound, "No such file or directory"));
-        }
-
-        if path.is_file() || path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+        if !metadata.is_dir() {
             let entry = Self::create_entry_from_path(path)?;
             if long_format {
                 Self::print_long(&entry, out, human_readable, use_color)?;
@@ -137,9 +141,7 @@ impl LsApplet {
             return Ok(());
         }
 
-        let mut entries: Vec<DirEntry> = fs::read_dir(path)?
-            .filter_map(|e| e.ok())
-            .collect();
+        let mut entries: Vec<DirEntry> = fs::read_dir(path)?.collect::<Result<_, _>>()?;
 
         entries.retain(|e| {
             if show_all {
@@ -150,7 +152,9 @@ impl LsApplet {
         });
 
         entries.sort_by(|a, b| {
-            a.file_name().to_string_lossy().cmp(&b.file_name().to_string_lossy())
+            a.file_name()
+                .to_string_lossy()
+                .cmp(&b.file_name().to_string_lossy())
         });
 
         if long_format {
@@ -173,20 +177,20 @@ impl LsApplet {
     fn create_entry_from_path(path: &Path) -> io::Result<DirEntry> {
         let parent = path.parent().unwrap_or(Path::new("."));
         let file_name = path.file_name().unwrap_or(path.as_os_str());
-        
+
         for entry in fs::read_dir(parent)? {
             let entry = entry?;
             if entry.file_name() == file_name {
                 return Ok(entry);
             }
         }
-        
+
         Err(io::Error::new(io::ErrorKind::NotFound, "Entry not found"))
     }
 
     fn print_short(entry: &DirEntry, out: &mut impl Write, use_color: bool) -> io::Result<()> {
         let name = entry.file_name().to_string_lossy().to_string();
-        let metadata = entry.metadata()?;
+        let metadata = fs::symlink_metadata(entry.path())?;
 
         if use_color {
             let color = Self::get_color(&metadata, entry.path());
@@ -203,8 +207,13 @@ impl LsApplet {
     }
 
     #[cfg(unix)]
-    fn print_long(entry: &DirEntry, out: &mut impl Write, human_readable: bool, use_color: bool) -> io::Result<()> {
-        let metadata = entry.metadata()?;
+    fn print_long(
+        entry: &DirEntry,
+        out: &mut impl Write,
+        human_readable: bool,
+        use_color: bool,
+    ) -> io::Result<()> {
+        let metadata = fs::symlink_metadata(entry.path())?;
         let file_type = metadata.file_type();
         let mode = metadata.mode();
 
@@ -232,14 +241,22 @@ impl LsApplet {
         let mtime = Self::format_time(metadata.modified()?);
 
         let name = entry.file_name().to_string_lossy().to_string();
-        let name_display = if use_color {
-            if let Some(color) = Self::get_color(&metadata, entry.path()) {
-                format!("\x1b[{}m{}\x1b[0m", color, name)
-            } else {
-                name.clone()
+        let displayed_name = if file_type.is_symlink() {
+            match fs::read_link(entry.path()) {
+                Ok(target) => format!("{} -> {}", name, target.display()),
+                Err(_) => name.clone(),
             }
         } else {
             name.clone()
+        };
+        let name_display = if use_color {
+            if let Some(color) = Self::get_color(&metadata, entry.path()) {
+                format!("\x1b[{}m{}\x1b[0m", color, displayed_name)
+            } else {
+                displayed_name
+            }
+        } else {
+            displayed_name
         };
 
         let size_display = if human_readable {
@@ -248,14 +265,23 @@ impl LsApplet {
             size.to_string()
         };
 
-        writeln!(out, "{}{} {:>3} {:>5} {:>5} {:>8} {} {}", type_char, perms, nlink, uid, gid, size_display, mtime, name_display)?;
+        writeln!(
+            out,
+            "{}{} {:>3} {:>5} {:>5} {:>8} {} {}",
+            type_char, perms, nlink, uid, gid, size_display, mtime, name_display
+        )?;
 
         Ok(())
     }
 
     #[cfg(not(unix))]
-    fn print_long(entry: &DirEntry, out: &mut impl Write, human_readable: bool, use_color: bool) -> io::Result<()> {
-        let metadata = entry.metadata()?;
+    fn print_long(
+        entry: &DirEntry,
+        out: &mut impl Write,
+        human_readable: bool,
+        use_color: bool,
+    ) -> io::Result<()> {
+        let metadata = fs::symlink_metadata(entry.path())?;
         let file_type = metadata.file_type();
 
         let type_char = if file_type.is_dir() {
@@ -271,14 +297,22 @@ impl LsApplet {
         let mtime = Self::format_time(metadata.modified()?);
 
         let name = entry.file_name().to_string_lossy().to_string();
-        let name_display = if use_color {
-            if let Some(color) = Self::get_color(&metadata, entry.path()) {
-                format!("\x1b[{}m{}\x1b[0m", color, name)
-            } else {
-                name.clone()
+        let displayed_name = if file_type.is_symlink() {
+            match fs::read_link(entry.path()) {
+                Ok(target) => format!("{} -> {}", name, target.display()),
+                Err(_) => name.clone(),
             }
         } else {
             name.clone()
+        };
+        let name_display = if use_color {
+            if let Some(color) = Self::get_color(&metadata, entry.path()) {
+                format!("\x1b[{}m{}\x1b[0m", color, displayed_name)
+            } else {
+                displayed_name
+            }
+        } else {
+            displayed_name
         };
 
         let size_display = if human_readable {
@@ -287,7 +321,11 @@ impl LsApplet {
             size.to_string()
         };
 
-        writeln!(out, "{}{} {:>3} {:>5} {:>5} {:>8} {} {}", type_char, perms, 1, "-", "-", size_display, mtime, name_display)?;
+        writeln!(
+            out,
+            "{}{} {:>3} {:>5} {:>5} {:>8} {} {}",
+            type_char, perms, 1, "-", "-", size_display, mtime, name_display
+        )?;
 
         Ok(())
     }
@@ -295,29 +333,47 @@ impl LsApplet {
     #[cfg(unix)]
     fn format_permissions(mode: u32) -> String {
         let mut result = String::with_capacity(9);
-        
+
         result.push(if mode & 0o400 != 0 { 'r' } else { '-' });
         result.push(if mode & 0o200 != 0 { 'w' } else { '-' });
         result.push(if mode & 0o100 != 0 {
-            if mode & 0o4000 != 0 { 's' } else { 'x' }
+            if mode & 0o4000 != 0 {
+                's'
+            } else {
+                'x'
+            }
+        } else if mode & 0o4000 != 0 {
+            'S'
         } else {
-            if mode & 0o4000 != 0 { 'S' } else { '-' }
+            '-'
         });
 
         result.push(if mode & 0o040 != 0 { 'r' } else { '-' });
         result.push(if mode & 0o020 != 0 { 'w' } else { '-' });
         result.push(if mode & 0o010 != 0 {
-            if mode & 0o2000 != 0 { 's' } else { 'x' }
+            if mode & 0o2000 != 0 {
+                's'
+            } else {
+                'x'
+            }
+        } else if mode & 0o2000 != 0 {
+            'S'
         } else {
-            if mode & 0o2000 != 0 { 'S' } else { '-' }
+            '-'
         });
 
         result.push(if mode & 0o004 != 0 { 'r' } else { '-' });
         result.push(if mode & 0o002 != 0 { 'w' } else { '-' });
         result.push(if mode & 0o001 != 0 {
-            if mode & 0o1000 != 0 { 't' } else { 'x' }
+            if mode & 0o1000 != 0 {
+                't'
+            } else {
+                'x'
+            }
+        } else if mode & 0o1000 != 0 {
+            'T'
         } else {
-            if mode & 0o1000 != 0 { 'T' } else { '-' }
+            '-'
         });
 
         result
@@ -334,37 +390,49 @@ impl LsApplet {
     }
 
     fn format_time(time: SystemTime) -> String {
-        let duration = time.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
+        let duration = time
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap_or_default();
         let secs = duration.as_secs() as i64;
-        
+
         let (_year, month, day, hour, min) = Self::unix_to_datetime(secs);
-        
-        format!("{} {:>2} {:02}:{:02}", Self::month_name(month), day, hour, min)
+
+        format!(
+            "{} {:>2} {:02}:{:02}",
+            Self::month_name(month),
+            day,
+            hour,
+            min
+        )
     }
 
     fn unix_to_datetime(secs: i64) -> (i32, u32, u32, u32, u32) {
         const DAYS_PER_YEAR: i64 = 365;
         const DAYS_PER_LEAP: i64 = 366;
-        
+
         let mut days = secs / 86400;
         let mut year = 1970;
-        
+
         loop {
-            let days_in_year = if Self::is_leap_year(year) { DAYS_PER_LEAP } else { DAYS_PER_YEAR };
+            let days_in_year = if Self::is_leap_year(year) {
+                DAYS_PER_LEAP
+            } else {
+                DAYS_PER_YEAR
+            };
             if days < days_in_year {
                 break;
             }
             days -= days_in_year;
             year += 1;
         }
-        
+
         let leap = Self::is_leap_year(year);
         let days_in_months = if leap {
             [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
         } else {
             [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
         };
-        
+
         let mut month = 0;
         for (i, &dim) in days_in_months.iter().enumerate() {
             if days < dim {
@@ -373,12 +441,12 @@ impl LsApplet {
             }
             days -= dim;
         }
-        
+
         let day = days + 1;
         let time_of_day = secs % 86400;
         let hour = (time_of_day / 3600) as u32;
         let min = ((time_of_day % 3600) / 60) as u32;
-        
+
         (year, month as u32, day as u32, hour, min)
     }
 
@@ -388,9 +456,18 @@ impl LsApplet {
 
     fn month_name(month: u32) -> &'static str {
         match month {
-            1 => "Jan", 2 => "Feb", 3 => "Mar", 4 => "Apr",
-            5 => "May", 6 => "Jun", 7 => "Jul", 8 => "Aug",
-            9 => "Sep", 10 => "Oct", 11 => "Nov", 12 => "Dec",
+            1 => "Jan",
+            2 => "Feb",
+            3 => "Mar",
+            4 => "Apr",
+            5 => "May",
+            6 => "Jun",
+            7 => "Jul",
+            8 => "Aug",
+            9 => "Sep",
+            10 => "Oct",
+            11 => "Nov",
+            12 => "Dec",
             _ => "???",
         }
     }

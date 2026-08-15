@@ -1,7 +1,9 @@
+#[cfg(unix)]
+use crate::core::unix_ffi::raw_getpwnam;
 use crate::core::Applet;
 
 #[cfg(unix)]
-use std::ffi::CString;
+use std::ffi::{c_char, CStr, CString};
 
 pub struct SuApplet;
 
@@ -94,7 +96,7 @@ impl Applet for SuApplet {
                             }
                         }
                     } else {
-                        eprintln!("su: invalid option -- '{}'", &args[i]);
+                        eprintln!("su: invalid option -- '{}'", args[i]);
                         return Ok(1);
                     }
                 }
@@ -106,6 +108,12 @@ impl Applet for SuApplet {
         }
 
         let target_user = user.unwrap_or("root");
+
+        let current_uid = unsafe { raw_getuid() };
+        if current_uid != 0 {
+            eprintln!("su: permission denied (only root can switch user)");
+            return Ok(1);
+        }
 
         let pw = match get_passwd_by_name(target_user) {
             Some(p) => p,
@@ -125,13 +133,6 @@ impl Applet for SuApplet {
                 }
             }
         };
-
-        let current_uid = unsafe { raw_getuid() };
-
-        if current_uid != 0 {
-            eprintln!("su: permission denied (only root can switch user)");
-            return Ok(1);
-        }
 
         let shell_c = CString::new(shell_path.as_str()).map_err(|_| "invalid shell path")?;
 
@@ -170,11 +171,20 @@ impl Applet for SuApplet {
         }
 
         if pid == 0 {
+            if unsafe { raw_initgroups(user_val.as_ptr(), pw.gid) } != 0 {
+                unsafe {
+                    raw__exit(1);
+                }
+            }
             if unsafe { raw_setgid(pw.gid) } != 0 {
-                unsafe { raw__exit(1); }
+                unsafe {
+                    raw__exit(1);
+                }
             }
             if unsafe { raw_setuid(pw.uid) } != 0 {
-                unsafe { raw__exit(1); }
+                unsafe {
+                    raw__exit(1);
+                }
             }
 
             unsafe {
@@ -187,7 +197,13 @@ impl Applet for SuApplet {
                 }
             }
 
-            let mut c_argv: Vec<*const i8> = exec_args.iter().map(|a| a.as_ptr()).collect();
+            if login_shell && unsafe { raw_chdir(home_val.as_ptr()) } != 0 {
+                unsafe {
+                    raw__exit(1);
+                }
+            }
+
+            let mut c_argv: Vec<*const c_char> = exec_args.iter().map(|a| a.as_ptr()).collect();
             c_argv.push(std::ptr::null());
 
             unsafe {
@@ -195,13 +211,18 @@ impl Applet for SuApplet {
             }
 
             eprintln!("su: failed to execute '{}'", shell_path);
-            unsafe { raw__exit(1); }
+            unsafe {
+                raw__exit(1);
+            }
         }
 
         let mut status: i32 = 0;
         loop {
             let ret = unsafe { raw_waitpid(pid, &mut status, 0) };
             if ret < 0 {
+                if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
                 break;
             }
             if unsafe { raw_wifexited(status) } {
@@ -247,30 +268,11 @@ struct PasswdInfo {
 }
 
 #[cfg(unix)]
-#[repr(C)]
-struct Passwd {
-    pw_name: *const i8,
-    pw_passwd: *const i8,
-    pw_uid: u32,
-    pw_gid: u32,
-    pw_gecos: *const i8,
-    pw_dir: *const i8,
-    pw_shell: *const i8,
-}
-
-#[cfg(unix)]
-fn c_char_to_string(ptr: *const i8) -> String {
+fn c_char_to_string(ptr: *const c_char) -> String {
     if ptr.is_null() {
         return String::new();
     }
-    let mut len = 0;
-    unsafe {
-        while *ptr.add(len) != 0 {
-            len += 1;
-        }
-        let slice = std::slice::from_raw_parts(ptr as *const u8, len);
-        String::from_utf8_lossy(slice).to_string()
-    }
+    unsafe { CStr::from_ptr(ptr).to_string_lossy().into_owned() }
 }
 
 #[cfg(unix)]
@@ -295,26 +297,29 @@ extern "C" {
     #[link_name = "getuid"]
     fn raw_getuid() -> u32;
 
-    #[link_name = "getpwnam"]
-    fn raw_getpwnam(name: *const i8) -> *const Passwd;
-
     #[link_name = "fork"]
     fn raw_fork() -> i32;
 
     #[link_name = "setgid"]
     fn raw_setgid(gid: u32) -> i32;
 
+    #[link_name = "initgroups"]
+    fn raw_initgroups(user: *const c_char, group: u32) -> i32;
+
     #[link_name = "setuid"]
     fn raw_setuid(uid: u32) -> i32;
 
     #[link_name = "execvp"]
-    fn raw_execvp(file: *const i8, argv: *const *const i8) -> i32;
+    fn raw_execvp(file: *const c_char, argv: *const *const c_char) -> i32;
 
     #[link_name = "waitpid"]
     fn raw_waitpid(pid: i32, status: *mut i32, options: i32) -> i32;
 
     #[link_name = "setenv"]
-    fn raw_setenv(name: *const i8, value: *const i8, overwrite: i32) -> i32;
+    fn raw_setenv(name: *const c_char, value: *const c_char, overwrite: i32) -> i32;
+
+    #[link_name = "chdir"]
+    fn raw_chdir(path: *const c_char) -> i32;
 
     #[link_name = "_exit"]
     fn raw__exit(status: i32) -> !;

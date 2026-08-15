@@ -1,4 +1,8 @@
+#[cfg(unix)]
+use crate::core::unix_ffi::raw_getpwuid;
 use crate::core::Applet;
+#[cfg(unix)]
+use std::ffi::{c_char, CStr};
 use std::io::{self, Write};
 
 pub struct WhoamiApplet;
@@ -71,34 +75,12 @@ fn get_username_by_uid(uid: u32) -> Option<String> {
 }
 
 #[cfg(unix)]
-fn c_char_to_string(ptr: *const i8) -> String {
-    let mut len = 0;
-    unsafe {
-        while *ptr.add(len) != 0 {
-            len += 1;
-        }
-        let slice = std::slice::from_raw_parts(ptr as *const u8, len);
-        String::from_utf8_lossy(slice).to_string()
-    }
-}
-
-#[cfg(unix)]
-#[repr(C)]
-struct Passwd {
-    pw_name: *const i8,
-    pw_passwd: *const i8,
-    pw_uid: u32,
-    pw_gid: u32,
-    pw_gecos: *const i8,
-    pw_dir: *const i8,
-    pw_shell: *const i8,
+fn c_char_to_string(ptr: *const c_char) -> String {
+    unsafe { CStr::from_ptr(ptr).to_string_lossy().into_owned() }
 }
 
 #[cfg(unix)]
 extern "C" {
     #[link_name = "geteuid"]
     fn raw_geteuid() -> u32;
-
-    #[link_name = "getpwuid"]
-    fn raw_getpwuid(uid: u32) -> *const Passwd;
 }

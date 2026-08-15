@@ -141,14 +141,28 @@ impl CutApplet {
                 let mut parts = part.splitn(2, '-');
                 let start_str = parts.next().unwrap_or("");
                 let end_str = parts.next().unwrap_or("");
-                let start: usize = if start_str.is_empty() { 1 } else { start_str.parse::<usize>().map_err(|_| format!("cut: invalid field value -- '{}'", part))? };
-                let end: usize = if end_str.is_empty() { usize::MAX } else { end_str.parse::<usize>().map_err(|_| format!("cut: invalid field value -- '{}'", part))? };
+                let start: usize = if start_str.is_empty() {
+                    1
+                } else {
+                    start_str
+                        .parse::<usize>()
+                        .map_err(|_| format!("cut: invalid field value -- '{}'", part))?
+                };
+                let end: usize = if end_str.is_empty() {
+                    usize::MAX
+                } else {
+                    end_str
+                        .parse::<usize>()
+                        .map_err(|_| format!("cut: invalid field value -- '{}'", part))?
+                };
                 if start == 0 || end == 0 {
-                    return Err(format!("cut: fields and positions are numbered from 1").into());
+                    return Err("cut: fields and positions are numbered from 1".into());
                 }
                 ranges.push(Range { start, end });
             } else {
-                let n: usize = part.parse::<usize>().map_err(|_| format!("cut: invalid field value -- '{}'", part))?;
+                let n: usize = part
+                    .parse::<usize>()
+                    .map_err(|_| format!("cut: invalid field value -- '{}'", part))?;
                 if n == 0 {
                     return Err("cut: fields and positions are numbered from 1".into());
                 }
@@ -158,7 +172,12 @@ impl CutApplet {
         Ok(ranges)
     }
 
-    fn process_file(out: &mut impl Write, path: &str, mode: &Mode, delimiter: char) -> io::Result<()> {
+    fn process_file(
+        out: &mut impl Write,
+        path: &str,
+        mode: &Mode,
+        delimiter: char,
+    ) -> io::Result<()> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         Self::process_reader(out, reader, mode, delimiter)
@@ -170,19 +189,37 @@ impl CutApplet {
         Self::process_reader(out, reader, mode, delimiter)
     }
 
-    fn process_reader<R: BufRead>(out: &mut impl Write, reader: R, mode: &Mode, delimiter: char) -> io::Result<()> {
+    fn process_reader<R: BufRead>(
+        out: &mut impl Write,
+        reader: R,
+        mode: &Mode,
+        delimiter: char,
+    ) -> io::Result<()> {
         for line_result in reader.lines() {
             let line = line_result?;
             match mode {
                 Mode::Fields(ranges) => {
+                    if !line.contains(delimiter) {
+                        writeln!(out, "{}", line)?;
+                        continue;
+                    }
                     let fields: Vec<&str> = line.split(delimiter).collect();
                     let mut selected: Vec<(usize, &str)> = Vec::new();
                     for range in ranges {
                         let start = range.start.saturating_sub(1);
-                        let end = if range.end == usize::MAX { fields.len() } else { range.end };
-                        for idx in start..end.min(fields.len()) {
+                        let end = if range.end == usize::MAX {
+                            fields.len()
+                        } else {
+                            range.end
+                        };
+                        for (idx, field) in fields
+                            .iter()
+                            .enumerate()
+                            .take(end.min(fields.len()))
+                            .skip(start)
+                        {
                             if !selected.iter().any(|&(i, _)| i == idx) {
-                                selected.push((idx, fields[idx]));
+                                selected.push((idx, *field));
                             }
                         }
                     }
@@ -195,15 +232,28 @@ impl CutApplet {
                     let mut selected: Vec<(usize, char)> = Vec::new();
                     for range in ranges {
                         let start = range.start.saturating_sub(1);
-                        let end = if range.end == usize::MAX { chars.len() } else { range.end };
-                        for idx in start..end.min(chars.len()) {
+                        let end = if range.end == usize::MAX {
+                            chars.len()
+                        } else {
+                            range.end
+                        };
+                        for (idx, ch) in chars
+                            .iter()
+                            .enumerate()
+                            .take(end.min(chars.len()))
+                            .skip(start)
+                        {
                             if !selected.iter().any(|&(i, _)| i == idx) {
-                                selected.push((idx, chars[idx]));
+                                selected.push((idx, *ch));
                             }
                         }
                     }
                     selected.sort_by_key(|&(i, _)| i);
-                    writeln!(out, "{}", selected.into_iter().map(|(_, c)| c).collect::<String>())?;
+                    writeln!(
+                        out,
+                        "{}",
+                        selected.into_iter().map(|(_, c)| c).collect::<String>()
+                    )?;
                 }
             }
         }

@@ -6,7 +6,11 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-2021-orange.svg)](https://www.rust-lang.org)
-[![Size](https://img.shields.io/badge/size-~360KB-green.svg)](target/release/idlebox)
+[![Size](https://img.shields.io/badge/size-optimized-green.svg)](target/release/idlebox)
+[![Build & Test](https://github.com/IamKenae/idlebox/actions/workflows/test.yml/badge.svg)](https://github.com/IamKenae/idlebox/actions/workflows/test.yml)
+[![Quality](https://github.com/IamKenae/idlebox/actions/workflows/quality.yml/badge.svg)](https://github.com/IamKenae/idlebox/actions/workflows/quality.yml)
+[![Portability](https://github.com/IamKenae/idlebox/actions/workflows/portability.yml/badge.svg)](https://github.com/IamKenae/idlebox/actions/workflows/portability.yml)
+[![Binary Size](https://github.com/IamKenae/idlebox/actions/workflows/size.yml/badge.svg)](https://github.com/IamKenae/idlebox/actions/workflows/size.yml)
 
 [🇨🇳 中文文档](README-zh.md)
 
@@ -16,21 +20,30 @@
 
 ## Introduction
 
-**IdleBox** is an independent, lightweight, and visually polished BusyBox/POSIX-compatible toolbox written in pure Rust with zero external dependencies.
+**IdleBox** is an independent, lightweight, and visually polished multi-call toolbox inspired by BusyBox, written in pure Rust with zero external dependencies.
 
 ### Design Philosophy
 
 > Say goodbye to Busy, embrace Idle.
 
-BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this classic concept in modern Rust—maintaining POSIX compatibility while pursuing a smaller footprint, stronger safety guarantees, and a more delightful terminal experience.
+BusyBox has powered embedded Linux for over two decades. IdleBox reimagines its multi-call binary concept in modern Rust and progressively improves compatibility with common POSIX, BusyBox, and GNU workflows.
+
+The current stage focuses on making IdleBox itself better first: preserving flexibility, a small footprint, low overhead, and high performance while improving the project structure, core functionality, and user experience. Broader and deeper compatibility follows incrementally. This is a current engineering priority, not a permanent limit on the project's long-term direction.
+
+### Current Development Principles
+
+1. **Protect the lightweight foundation** — Prefer a single binary, zero external dependencies, modularity, and low runtime overhead
+2. **Optimize the project first** — Improve correctness, consistency, core functionality, cross-platform behavior, and maintainability
+3. **Expand compatibility progressively** — Cover common workflows first, then add more POSIX, BusyBox, and GNU behavior
+4. **Make evidence-based trade-offs** — Evaluate features and abstractions using binary size, startup time, throughput, and test results
 
 ---
 
 ## Features
 
 - **Zero Dependencies** — Pure Rust standard library, no third-party crates
-- **Ultra-compact** — ~360KB release binary, ideal for embedded and container environments
-- **POSIX Compatible** — Drop-in replacement for common Unix utilities
+- **Size-conscious** — Release settings prioritize a compact binary; actual size varies by target and toolchain
+- **Progressive Compatibility** — Covers common Unix/POSIX workflows first and incrementally expands BusyBox/GNU behavior
 - **Cross-Platform** — Supports Linux, macOS, and Windows
 - **Modular Design** — Easily extend via the Applet mechanism
 - **Symlink Support** — Invoke applets directly via symlinks
@@ -52,7 +65,7 @@ BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this
 
 | Applet | Description | Highlights |
 |--------|-------------|------------|
-| `echo` | Print text to standard output | Supports `-n` (no newline), `-e` (escape interpretation) |
+| `echo` | Print text to standard output | Supports `-n` (no newline), streams arguments without assembling a second full output string |
 | `cat` | Concatenate files and print to standard output | Supports `-n` line numbers, `-b` non-blank numbering, `-A` show invisibles, stdin pipe |
 | `ls` | List directory contents | **ANSI colorized output**: dirs in blue, executables in green, archives in red, symlinks in cyan; supports `-l` long format, `-a` hidden files, `-h` human-readable sizes |
 | `mkdir` | Create directories | Supports `-p` for nested creation, multiple directories in one call |
@@ -78,22 +91,24 @@ BusyBox has powered embedded Linux for over two decades. IdleBox reimagines this
 | `test` / `[` | Evaluate conditional expressions | POSIX-compatible `test` and `[` forms, file/string/numeric tests, logical operators |
 | `expr` | Evaluate expressions and print result | Arithmetic, comparison, logical, string ops; recursive descent parser |
 | `find` | Search for files in a directory hierarchy | Glob `-name`, `-type`, `-maxdepth`, `-empty`; pure Rust traversal |
-| `wc` | Print newline, word, and byte counts | `-l`/`-w`/`-c`/`-m`, multi-file with `total`, stdin pipe |
+| `wc` | Print newline, word, and byte counts | 8 KiB streaming counter, `-l`/`-w`/`-c`/`-m`, multi-file `total`, stdin pipe |
 | `sort` | Sort lines of text files | `-r` reverse, `-n` numeric, `-u` unique, multi-file merge |
-| `uniq` | Report or omit repeated lines | `-c` count, `-d` repeated, `-u` unique, `-i` ignore-case |
+| `uniq` | Report or omit repeated lines | Constant-memory group processing, optional output file, `-c`/`-d`/`-u`/`-i` |
 | `cut` | Remove sections from each line | `-d` delimiter, `-f` fields, `-c` characters, range support |
 | `tr` | Translate or delete characters | SET1/SET2 translation, `-d` delete, `-s` squeeze, range expansion |
 | `id` | Print real and effective user and group IDs | `-u`/`-g`/`-G`/`-n` flags, query by user name, POSIX libc FFI |
 | `whoami` | Print effective user name | POSIX `geteuid()` + `getpwuid()` FFI |
 | `su` | Switch user | `-l` login shell, `-c` command, `-s` shell; root-only |
 | `relax` | IdleBox special: take a break and relax | A unique relaxation experience, embodying the "Idle" spirit |
-| `--install` | Automated applet launcher deployment | Creates symlinks on Unix; on Windows creates `.exe` launchers using a hard link with a copy fallback |
+| `--install` | Automated applet launcher deployment | Previews with `--dry-run`, protects conflicts by default, and creates symlinks on Unix or `.exe` launchers on Windows |
 
 ---
 
 ## Quick Start
 
 ### Build
+
+Requires Rust 1.85 or newer. The minimum toolchain is also validated on Alpine Linux/musl.
 
 ```bash
 # Debug build
@@ -114,9 +129,17 @@ idlebox echo "Hello, IdleBox!"
 idlebox cat -n README.md
 idlebox ls --color=auto -lah
 
+# Discover commands and version information
+idlebox --help
+idlebox help wc
+idlebox --list
+idlebox --version
+
 # Automated install (create launchers for all applets)
 idlebox --install              # Unix: /usr/local/bin; Windows: %LOCALAPPDATA%\IdleBox\bin
 idlebox --install ./bin        # Install to a custom directory
+idlebox --install --dry-run ./bin  # Preview without making changes
+idlebox --install --force ./bin    # Explicitly replace conflicting files or links
 
 # Via symlink on Unix
 cd target/release
@@ -131,6 +154,8 @@ ln -s idlebox ls
 ```bash
 cargo test
 ```
+
+GitHub Actions separates formatting/lint/docs, native Linux/macOS/Windows tests, cross-target portability, and Linux release-size budgets into independent workflows.
 
 ---
 
