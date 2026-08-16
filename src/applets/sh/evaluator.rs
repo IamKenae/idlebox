@@ -438,6 +438,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn test_execute_with_stdout_redirect() {
         let temp_dir = TempDir::new().unwrap();
         let output_file = temp_dir.path().join("output.txt");
@@ -469,6 +470,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn test_execute_with_append_redirect() {
         let temp_dir = TempDir::new().unwrap();
         let output_file = temp_dir.path().join("output.txt");
