@@ -37,6 +37,7 @@ mod rm;
 mod sha1sum;
 mod sha256sum;
 mod sha512sum;
+mod sh;
 mod sleep;
 mod sort;
 mod su;
