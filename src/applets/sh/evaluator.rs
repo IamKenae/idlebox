@@ -29,8 +29,20 @@ impl Evaluator {
     }
 
     fn execute_command(&mut self, cmd: &Command) -> Result<i32, Box<dyn std::error::Error>> {
-        let name = self.expand_word(&cmd.name);
-        let args: Vec<String> = cmd.args.iter().map(|arg| self.expand_word(arg)).collect();
+        let mut name = self.expand_word(&cmd.name);
+        let mut args: Vec<String> = cmd.args.iter().map(|arg| self.expand_word(arg)).collect();
+
+        // Expand aliases
+        if let Some(alias_value) = self.state.aliases.get(&name).cloned() {
+            let mut alias_parts = alias_value.split_whitespace();
+            if let Some(first) = alias_parts.next() {
+                name = first.to_string();
+                let alias_args: Vec<String> = alias_parts.map(|s| s.to_string()).collect();
+                let mut new_args = alias_args;
+                new_args.extend(args);
+                args = new_args;
+            }
+        }
 
         let mut stdin_redirect: Option<String> = None;
         let mut stdout_redirect: Option<(String, bool)> = None;
@@ -146,8 +158,20 @@ impl Evaluator {
             let is_last = idx == pipeline.commands.len() - 1;
 
             if let Ast::Command(cmd) = cmd_ast {
-                let name = self.expand_word(&cmd.name);
-                let args: Vec<String> = cmd.args.iter().map(|arg| self.expand_word(arg)).collect();
+                let mut name = self.expand_word(&cmd.name);
+                let mut args: Vec<String> = cmd.args.iter().map(|arg| self.expand_word(arg)).collect();
+
+                // Expand aliases
+                if let Some(alias_value) = self.state.aliases.get(&name).cloned() {
+                    let mut alias_parts = alias_value.split_whitespace();
+                    if let Some(first) = alias_parts.next() {
+                        name = first.to_string();
+                        let alias_args: Vec<String> = alias_parts.map(|s| s.to_string()).collect();
+                        let mut new_args = alias_args;
+                        new_args.extend(args);
+                        args = new_args;
+                    }
+                }
 
                 let mut cmd_proc = ProcessCommand::new(&name);
                 cmd_proc.args(&args);
