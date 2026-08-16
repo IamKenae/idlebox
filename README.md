@@ -51,9 +51,9 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 
 | Platform | Status | Notes |
 |----------|--------|-------|
-| Linux | Full | All 53 applets supported |
-| macOS | Full | All 53 applets supported |
-| Windows | Partial | 36+ applets fully supported; Unix-only applets (chmod, chown, chgrp, id, su) gracefully degrade |
+| Linux | Full | All 58 applets supported |
+| macOS | Full | All 58 applets supported |
+| Windows | Partial | 41+ applets fully supported; Unix-only applets (chmod, chown, chgrp, id, su) gracefully degrade |
 
 ---
 
@@ -99,6 +99,11 @@ The current stage focuses on making IdleBox itself better first: preserving flex
 | `gunzip` | Decompress Gzip files | `gzip -d`-compatible file naming and `-k`/`-f`/`-c` behavior |
 | `zcat` | Decompress Gzip data to stdout | Reads `.gz` files or stdin without modifying source files |
 | `unzip` | List and extract ZIP archives | Stored and Deflate entries, `-l`, `-o`, `-d`, CRC validation, Zip Slip protection |
+| `md5sum` | Compute and check MD5 message digest | `-c` verification, `-b`/`-t` binary/text, `--status` quiet check |
+| `sha1sum` | Compute and check SHA1 message digest | `-c` verification, `-b`/`-t` binary/text, `--status` quiet check |
+| `sha256sum` | Compute and check SHA256 message digest | `-c` verification, `-b`/`-t` binary/text, `--status` quiet check |
+| `sha512sum` | Compute and check SHA512 message digest | `-c` verification, `-b`/`-t` binary/text, `--status` quiet check |
+| `b3sum` | Compute and check BLAKE3 message digest | Pure Rust parallelized hash chunking for large files, `-c` check |
 | `uname` | Print system information | POSIX `uname()` FFI, `-a` all, `-s`/`-n`/`-r`/`-v`/`-m` individual fields |
 | `test` / `[` | Evaluate conditional expressions | POSIX-compatible `test` and `[` forms, file/string/numeric tests, logical operators |
 | `expr` | Evaluate expressions and print result | Arithmetic, comparison, logical, string ops; recursive descent parser |

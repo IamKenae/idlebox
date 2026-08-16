@@ -1,11 +1,12 @@
 use crate::applets::{
-    BasenameApplet, BracketApplet, CatApplet, ChgrpApplet, ChmodApplet, ChownApplet, CpApplet,
-    CutApplet, DfApplet, DirnameApplet, DuApplet, EchoApplet, EnvApplet, ExprApplet, FalseApplet,
-    FindApplet, FreeApplet, GrepApplet, GunzipApplet, GzipApplet, HeadApplet, IdApplet, KillApplet,
-    LnApplet, LsApplet, MkdirApplet, MvApplet, PrintenvApplet, PrintfApplet, PsApplet, PwdApplet,
-    ReadlinkApplet, RealpathApplet, RelaxApplet, RmApplet, SleepApplet, SortApplet, SuApplet,
-    TailApplet, TarApplet, TeeApplet, TestApplet, TouchApplet, TrApplet, TreeApplet, TrueApplet,
-    UnameApplet, UniqApplet, UnzipApplet, UptimeApplet, WcApplet, WhoamiApplet, ZcatApplet,
+    B3sumApplet, BasenameApplet, BracketApplet, CatApplet, ChgrpApplet, ChmodApplet, ChownApplet,
+    CpApplet, CutApplet, DfApplet, DirnameApplet, DuApplet, EchoApplet, EnvApplet, ExprApplet,
+    FalseApplet, FindApplet, FreeApplet, GrepApplet, GunzipApplet, GzipApplet, HeadApplet,
+    IdApplet, KillApplet, LnApplet, LsApplet, Md5sumApplet, MkdirApplet, MvApplet, PrintenvApplet,
+    PrintfApplet, PsApplet, PwdApplet, ReadlinkApplet, RealpathApplet, RelaxApplet, RmApplet,
+    Sha1sumApplet, Sha256sumApplet, Sha512sumApplet, SleepApplet, SortApplet, SuApplet, TailApplet,
+    TarApplet, TeeApplet, TestApplet, TouchApplet, TrApplet, TreeApplet, TrueApplet, UnameApplet,
+    UniqApplet, UnzipApplet, UptimeApplet, WcApplet, WhoamiApplet, ZcatApplet,
 };
 use crate::core::Applet;
 
@@ -51,6 +52,7 @@ impl AppletEntry {
 // Keep registration, listing, installation, and help policy in one place. Applets
 // whose `-h` flag has command-specific meaning only accept the long help flag.
 static APPLETS: &[AppletEntry] = &[
+    AppletEntry::new(&B3sumApplet, true),
     AppletEntry::new(&BasenameApplet, true),
     AppletEntry::new(&CatApplet, true),
     AppletEntry::new(&ChgrpApplet, true),
@@ -75,6 +77,7 @@ static APPLETS: &[AppletEntry] = &[
     AppletEntry::new(&KillApplet, false),
     AppletEntry::new(&LnApplet, true),
     AppletEntry::new(&LsApplet, false),
+    AppletEntry::new(&Md5sumApplet, true),
     AppletEntry::new(&MkdirApplet, true),
     AppletEntry::new(&MvApplet, true),
     AppletEntry::new(&PsApplet, false),
@@ -85,6 +88,9 @@ static APPLETS: &[AppletEntry] = &[
     AppletEntry::new(&RealpathApplet, true),
     AppletEntry::new(&RelaxApplet, true),
     AppletEntry::new(&RmApplet, true),
+    AppletEntry::new(&Sha1sumApplet, true),
+    AppletEntry::new(&Sha256sumApplet, true),
+    AppletEntry::new(&Sha512sumApplet, true),
     AppletEntry::new(&SortApplet, true),
     AppletEntry::new(&SleepApplet, true),
     AppletEntry::new(&SuApplet, true),
