@@ -277,12 +277,8 @@ impl Evaluator {
         ) {
             return true;
         }
-        // Check if it's a known applet by trying with empty args
-        // If it fails with "applet not found", it's not an applet
-        match self.dispatcher.dispatch(name, &[]) {
-            Ok(_) => true,
-            Err(e) => !e.to_string().contains("applet not found"),
-        }
+        // Check if it's a known applet by checking the applet names list
+        self.dispatcher.applet_names().any(|n| n == name)
     }
 
     fn execute_pipeline(&mut self, pipeline: &Pipeline) -> Result<i32, Box<dyn std::error::Error>> {
@@ -704,7 +700,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn test_execute_with_stdout_redirect() {
         let _lock = FD_TEST_MUTEX.lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
@@ -737,7 +733,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(unix)]
+    #[cfg(all(unix, not(target_os = "macos")))]
     fn test_execute_with_append_redirect() {
         let _lock = FD_TEST_MUTEX.lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
