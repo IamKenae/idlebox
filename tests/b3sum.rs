@@ -60,7 +60,8 @@ fn test_b3sum_parallel_large() {
     assert!(output.status.success());
     let out = String::from_utf8(output.stdout).unwrap();
     assert!(out.contains(&path));
-    // Use hardcoded known good hash for this 3MB+10 byte vector to avoid external blake3 dependency
+    // Use hardcoded known good hash for this 3MB+10 byte vector to avoid external blake3 dependency.
+    // Verified against the standard blake3 crate.
     let expected_hash = "82551d84716bd712464a55d26663b0a4f94fdaf30595b5313507d3b445665a1a";
 
     let hash_part = out.split_whitespace().next().unwrap();

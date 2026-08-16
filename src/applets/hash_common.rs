@@ -171,6 +171,8 @@ fn check_file<H: HashImpl>(applet_name: &str, file: &str, status: bool) -> io::R
         }
     }
 
+    // GNU coreutils behavior: Malformed lines produce a warning but do not affect the exit code.
+    // Only wrong hashes or missing files cause a non-zero exit code (failures > 0).
     if bad_format > 0 && !status {
         eprintln!(
             "{}: WARNING: {} lines are improperly formatted",
