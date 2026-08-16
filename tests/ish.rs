@@ -241,6 +241,7 @@ fn test_ish_if_else_statement() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_ish_pipeline() {
     let output = idlebox_bin()
         .arg("ish")

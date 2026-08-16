@@ -288,10 +288,9 @@ impl Evaluator {
                 let (name, args) = self.expand_alias(&raw_name, raw_args);
 
                 if is_last {
-                    
                     // Check if we have pending input from a previous command
                     let has_pending_input = pending_input.is_some();
-                    
+
                     // Last command: try builtin/applet first (only if no pending input)
                     if !has_pending_input {
                         if let Ok(code) = execute_builtin(&mut self.state, &name, &args) {
@@ -353,8 +352,7 @@ impl Evaluator {
 
                             let _code = if matches!(
                                 name.as_str(),
-                                "cd"
-                                    | "exit"
+                                "cd" | "exit"
                                     | "export"
                                     | "unset"
                                     | "alias"
