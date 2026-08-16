@@ -67,3 +67,27 @@ fn test_b3sum_parallel_large() {
     let hash_part = out.split_whitespace().next().unwrap();
     assert_eq!(hash_part, expected_hash);
 }
+
+#[test]
+fn test_b3sum_parallel_large_remainder() {
+    use std::io::Write;
+    let mut f = tempfile::NamedTempFile::new().unwrap();
+    let data = vec![0x42u8; 3 * 1024 * 1024 + 500 * 1024]; // 3MB + 500KB
+    f.write_all(&data).unwrap();
+    let path = f.path().to_str().unwrap().to_string();
+    let bin = get_bin();
+    let output = std::process::Command::new(&bin)
+        .arg("b3sum")
+        .arg(&path)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let out = String::from_utf8(output.stdout).unwrap();
+    assert!(out.contains(&path));
+    // Verified against the standard blake3 crate.
+    let expected_hash = "977b124db3be924c7b01a2790a966cd4d46a949f8a03de5848f8439043f540f9";
+
+    let hash_part = out.split_whitespace().next().unwrap();
+    assert_eq!(hash_part, expected_hash);
+}

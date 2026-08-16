@@ -176,3 +176,49 @@ fn test_sha256sum_multiple_files() {
         lines[1].starts_with("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ")
     );
 }
+
+#[test]
+fn test_sha256sum_check_status_wrong_hash() {
+    let bin = get_bin();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.txt");
+    std::fs::write(&file, "hello world").unwrap();
+
+    let check_file = dir.path().join("check.sha256");
+    std::fs::write(
+        &check_file,
+        format!(
+            "0000000000000000000000000000000000000000000000000000000000000000  {}\n",
+            file.display()
+        ),
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(&bin)
+        .arg("sha256sum")
+        .arg("-c")
+        .arg("--status")
+        .arg(&check_file)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn test_sha256sum_check_malformed() {
+    let bin = get_bin();
+    let dir = tempfile::tempdir().unwrap();
+    let check_file = dir.path().join("check.sha256");
+    std::fs::write(&check_file, "this is a malformed line\n").unwrap();
+
+    let output = std::process::Command::new(&bin)
+        .arg("sha256sum")
+        .arg("-c")
+        .arg(&check_file)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let err = String::from_utf8(output.stderr).unwrap();
+    assert!(err.contains("WARNING: 1 lines are improperly formatted"));
+}

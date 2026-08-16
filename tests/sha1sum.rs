@@ -172,3 +172,50 @@ fn test_sha1sum_multiple_files() {
     assert!(lines[0].starts_with("2aae6c35c94fcfb415dbe95f408b9ce91ee846ed  "));
     assert!(lines[1].starts_with("da39a3ee5e6b4b0d3255bfef95601890afd80709  "));
 }
+
+#[test]
+fn test_sha1sum_check_status_wrong_hash() {
+    let bin = get_bin();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.txt");
+    std::fs::write(&file, "hello world").unwrap();
+
+    let check_file = dir.path().join("check.sha1");
+    std::fs::write(
+        &check_file,
+        format!(
+            "0000000000000000000000000000000000000000  {}\n",
+            file.display()
+        ),
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(&bin)
+        .arg("sha1sum")
+        .arg("-c")
+        .arg("--status")
+        .arg(&check_file)
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+}
+
+#[test]
+fn test_sha1sum_check_malformed() {
+    let bin = get_bin();
+    let dir = tempfile::tempdir().unwrap();
+    let check_file = dir.path().join("check.sha1");
+    std::fs::write(&check_file, "this is a malformed line\n").unwrap();
+
+    let output = std::process::Command::new(&bin)
+        .arg("sha1sum")
+        .arg("-c")
+        .arg(&check_file)
+        .output()
+        .unwrap();
+    // GNU coreutils behavior: Malformed lines exit 0, but produce a warning on stderr
+    assert!(output.status.success());
+    let err = String::from_utf8(output.stderr).unwrap();
+    assert!(err.contains("WARNING: 1 lines are improperly formatted"));
+}
