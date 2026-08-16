@@ -12,16 +12,22 @@ pub enum Ast {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct Word {
+    pub value: String,
+    pub literal: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Command {
-    pub name: String,
-    pub args: Vec<String>,
+    pub name: Word,
+    pub args: Vec<Word>,
     pub redirections: Vec<Redirection>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Redirection {
     pub op: RedirectOp,
-    pub target: String,
+    pub target: Word,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -53,7 +59,7 @@ pub struct If {
 #[derive(Debug, Clone, PartialEq)]
 pub struct For {
     pub var: String,
-    pub items: Vec<String>,
+    pub items: Vec<Word>,
     pub body: Box<Ast>,
 }
 
@@ -176,7 +182,22 @@ impl Parser {
         loop {
             match self.peek() {
                 Token::Word(word) => {
-                    let word = word.clone();
+                    let word = Word {
+                        value: word.clone(),
+                        literal: false,
+                    };
+                    self.advance();
+                    if name.is_none() {
+                        name = Some(word);
+                    } else {
+                        args.push(word);
+                    }
+                }
+                Token::LiteralWord(word) => {
+                    let word = Word {
+                        value: word.clone(),
+                        literal: true,
+                    };
                     self.advance();
                     if name.is_none() {
                         name = Some(word);
@@ -187,13 +208,26 @@ impl Parser {
                 Token::Redirect(op) => {
                     let op = op.clone();
                     self.advance();
-                    if let Token::Word(target) = self.peek() {
-                        let target = target.clone();
-                        self.advance();
-                        redirections.push(Redirection { op, target });
-                    } else {
-                        return Err("expected filename after redirection".to_string());
-                    }
+                    let target = match self.peek() {
+                        Token::Word(word) => {
+                            let w = Word {
+                                value: word.clone(),
+                                literal: false,
+                            };
+                            self.advance();
+                            w
+                        }
+                        Token::LiteralWord(word) => {
+                            let w = Word {
+                                value: word.clone(),
+                                literal: true,
+                            };
+                            self.advance();
+                            w
+                        }
+                        _ => return Err("expected filename after redirection".to_string()),
+                    };
+                    redirections.push(Redirection { op, target });
                 }
                 _ => break,
             }
@@ -277,10 +311,26 @@ impl Parser {
         self.expect(Token::In)?;
 
         let mut items = Vec::new();
-        while let Token::Word(item) = self.peek() {
-            let item = item.clone();
-            self.advance();
-            items.push(item);
+        loop {
+            match self.peek() {
+                Token::Word(item) => {
+                    let item = Word {
+                        value: item.clone(),
+                        literal: false,
+                    };
+                    self.advance();
+                    items.push(item);
+                }
+                Token::LiteralWord(item) => {
+                    let item = Word {
+                        value: item.clone(),
+                        literal: true,
+                    };
+                    self.advance();
+                    items.push(item);
+                }
+                _ => break,
+            }
         }
 
         self.skip_newlines();
@@ -396,8 +446,8 @@ mod tests {
         let ast = Parser::parse("echo hello").unwrap();
         match ast {
             Ast::Command(cmd) => {
-                assert_eq!(cmd.name, "echo");
-                assert_eq!(cmd.args, vec!["hello"]);
+                assert_eq!(cmd.name.value, "echo");
+                assert_eq!(cmd.args.iter().map(|w| w.value.as_str()).collect::<Vec<_>>(), vec!["hello"]);
                 assert!(cmd.redirections.is_empty());
             }
             _ => panic!("expected Command"),
@@ -409,11 +459,11 @@ mod tests {
         let ast = Parser::parse("echo hello > file.txt").unwrap();
         match ast {
             Ast::Command(cmd) => {
-                assert_eq!(cmd.name, "echo");
-                assert_eq!(cmd.args, vec!["hello"]);
+                assert_eq!(cmd.name.value, "echo");
+                assert_eq!(cmd.args.iter().map(|w| w.value.as_str()).collect::<Vec<_>>(), vec!["hello"]);
                 assert_eq!(cmd.redirections.len(), 1);
                 assert_eq!(cmd.redirections[0].op, RedirectOp::Out);
-                assert_eq!(cmd.redirections[0].target, "file.txt");
+                assert_eq!(cmd.redirections[0].target.value, "file.txt");
             }
             _ => panic!("expected Command"),
         }
@@ -426,13 +476,13 @@ mod tests {
             Ast::Pipeline(pipe) => {
                 assert_eq!(pipe.commands.len(), 2);
                 match &pipe.commands[0] {
-                    Ast::Command(cmd) => assert_eq!(cmd.name, "ls"),
+                    Ast::Command(cmd) => assert_eq!(cmd.name.value, "ls"),
                     _ => panic!("expected Command"),
                 }
                 match &pipe.commands[1] {
                     Ast::Command(cmd) => {
-                        assert_eq!(cmd.name, "grep");
-                        assert_eq!(cmd.args, vec!["foo"]);
+                        assert_eq!(cmd.name.value, "grep");
+                        assert_eq!(cmd.args.iter().map(|w| w.value.as_str()).collect::<Vec<_>>(), vec!["foo"]);
                     }
                     _ => panic!("expected Command"),
                 }
@@ -448,11 +498,11 @@ mod tests {
             Ast::List(list) => {
                 assert_eq!(list.op, ListOp::And);
                 match *list.left {
-                    Ast::Command(cmd) => assert_eq!(cmd.name, "cmd1"),
+                    Ast::Command(cmd) => assert_eq!(cmd.name.value, "cmd1"),
                     _ => panic!("expected Command"),
                 }
                 match *list.right {
-                    Ast::Command(cmd) => assert_eq!(cmd.name, "cmd2"),
+                    Ast::Command(cmd) => assert_eq!(cmd.name.value, "cmd2"),
                     _ => panic!("expected Command"),
                 }
             }
@@ -467,11 +517,11 @@ mod tests {
             Ast::List(list) => {
                 assert_eq!(list.op, ListOp::Or);
                 match *list.left {
-                    Ast::Command(cmd) => assert_eq!(cmd.name, "cmd1"),
+                    Ast::Command(cmd) => assert_eq!(cmd.name.value, "cmd1"),
                     _ => panic!("expected Command"),
                 }
                 match *list.right {
-                    Ast::Command(cmd) => assert_eq!(cmd.name, "cmd2"),
+                    Ast::Command(cmd) => assert_eq!(cmd.name.value, "cmd2"),
                     _ => panic!("expected Command"),
                 }
             }
@@ -496,7 +546,7 @@ mod tests {
         match ast {
             Ast::If(if_stmt) => {
                 match *if_stmt.condition {
-                    Ast::Command(cmd) => assert_eq!(cmd.name, "true"),
+                    Ast::Command(cmd) => assert_eq!(cmd.name.value, "true"),
                     _ => panic!("expected Command"),
                 }
                 assert!(if_stmt.elif_branches.is_empty());
@@ -523,7 +573,7 @@ mod tests {
         match ast {
             Ast::For(for_stmt) => {
                 assert_eq!(for_stmt.var, "i");
-                assert_eq!(for_stmt.items, vec!["1", "2", "3"]);
+                assert_eq!(for_stmt.items.iter().map(|w| w.value.as_str()).collect::<Vec<_>>(), vec!["1", "2", "3"]);
             }
             _ => panic!("expected For"),
         }
@@ -535,7 +585,7 @@ mod tests {
         match ast {
             Ast::While(while_stmt) => {
                 match *while_stmt.condition {
-                    Ast::Command(cmd) => assert_eq!(cmd.name, "true"),
+                    Ast::Command(cmd) => assert_eq!(cmd.name.value, "true"),
                     _ => panic!("expected Command"),
                 }
             }

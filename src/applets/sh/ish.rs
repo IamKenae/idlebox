@@ -3,11 +3,19 @@ use crate::applets::sh::parser::Parser;
 use crate::core::Applet;
 use std::io::{self, BufRead, Write};
 
-pub struct IshApplet;
+pub struct ShellApplet {
+    name: &'static str,
+}
 
-impl Applet for IshApplet {
+impl ShellApplet {
+    pub const fn new(name: &'static str) -> Self {
+        Self { name }
+    }
+}
+
+impl Applet for ShellApplet {
     fn name(&self) -> &'static str {
-        "ish"
+        self.name
     }
 
     fn description(&self) -> &'static str {
@@ -21,7 +29,7 @@ impl Applet for IshApplet {
 
         if args[0] == "-c" {
             if args.len() < 2 {
-                return Err("ish: -c requires an argument".into());
+                return Err(format!("{}: -c requires an argument", self.name).into());
             }
             return run_command(&args[1]);
         }
@@ -30,10 +38,10 @@ impl Applet for IshApplet {
     }
 
     fn help(&self) {
-        println!("Usage: ish [OPTIONS] [SCRIPT]");
-        println!("       ish -c COMMAND");
+        println!("Usage: {} [OPTIONS] [SCRIPT]", self.name);
+        println!("       {} -c COMMAND", self.name);
         println!();
-        println!("Idle Shell (ish) is a POSIX-compatible shell interpreter.");
+        println!("Idle Shell ({}) is a POSIX-compatible shell interpreter.", self.name);
         println!();
         println!("Options:");
         println!("  -c COMMAND    Execute COMMAND and exit");
@@ -41,41 +49,9 @@ impl Applet for IshApplet {
         println!("  (no args)     Start interactive shell");
         println!();
         println!("Examples:");
-        println!("  ish                    Start interactive shell");
-        println!("  ish script.sh          Execute script.sh");
-        println!("  ish -c \"echo hello\"    Execute command");
-    }
-}
-
-pub struct ShApplet;
-
-impl Applet for ShApplet {
-    fn name(&self) -> &'static str {
-        "sh"
-    }
-
-    fn description(&self) -> &'static str {
-        "Symbolic link to ish (Idle Shell)"
-    }
-
-    fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
-        IshApplet.run(args)
-    }
-}
-
-pub struct AshApplet;
-
-impl Applet for AshApplet {
-    fn name(&self) -> &'static str {
-        "ash"
-    }
-
-    fn description(&self) -> &'static str {
-        "Symbolic link to ish (Idle Shell)"
-    }
-
-    fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
-        IshApplet.run(args)
+        println!("  {}                    Start interactive shell", self.name);
+        println!("  {} script.sh          Execute script.sh", self.name);
+        println!("  {} -c \"echo hello\"    Execute command", self.name);
     }
 }
 

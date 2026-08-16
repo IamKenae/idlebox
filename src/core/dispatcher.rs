@@ -1,10 +1,10 @@
 use crate::applets::{
-    AshApplet, B3sumApplet, BasenameApplet, BracketApplet, CatApplet, ChgrpApplet, ChmodApplet,
+    B3sumApplet, BasenameApplet, BracketApplet, CatApplet, ChgrpApplet, ChmodApplet,
     ChownApplet, CpApplet, CutApplet, DfApplet, DirnameApplet, DuApplet, EchoApplet, EnvApplet,
     ExprApplet, FalseApplet, FindApplet, FreeApplet, GrepApplet, GunzipApplet, GzipApplet,
-    HeadApplet, IdApplet, IshApplet, KillApplet, LnApplet, LsApplet, Md5sumApplet, MkdirApplet,
+    HeadApplet, IdApplet, KillApplet, LnApplet, LsApplet, Md5sumApplet, MkdirApplet,
     MvApplet, PrintenvApplet, PrintfApplet, PsApplet, PwdApplet, ReadlinkApplet, RealpathApplet,
-    RelaxApplet, RmApplet, Sha1sumApplet, Sha256sumApplet, Sha512sumApplet, ShApplet, SleepApplet,
+    RelaxApplet, RmApplet, Sha1sumApplet, Sha256sumApplet, Sha512sumApplet, ShellApplet, SleepApplet,
     SortApplet, SuApplet, TailApplet, TarApplet, TeeApplet, TestApplet, TouchApplet, TrApplet,
     TreeApplet, TrueApplet, UnameApplet, UniqApplet, UnzipApplet, UptimeApplet, WcApplet,
     WhoamiApplet, ZcatApplet,
@@ -53,7 +53,7 @@ impl AppletEntry {
 // Keep registration, listing, installation, and help policy in one place. Applets
 // whose `-h` flag has command-specific meaning only accept the long help flag.
 static APPLETS: &[AppletEntry] = &[
-    AppletEntry::new(&AshApplet, true),
+    AppletEntry::new(&ShellApplet::new("ash"), true),
     AppletEntry::new(&B3sumApplet, true),
     AppletEntry::new(&BasenameApplet, true),
     AppletEntry::new(&CatApplet, true),
@@ -76,7 +76,7 @@ static APPLETS: &[AppletEntry] = &[
     AppletEntry::new(&GzipApplet, true),
     AppletEntry::new(&HeadApplet, true),
     AppletEntry::new(&IdApplet, true),
-    AppletEntry::new(&IshApplet, true),
+    AppletEntry::new(&ShellApplet::new("ish"), true),
     AppletEntry::new(&KillApplet, false),
     AppletEntry::new(&LnApplet, true),
     AppletEntry::new(&LsApplet, false),
@@ -94,7 +94,7 @@ static APPLETS: &[AppletEntry] = &[
     AppletEntry::new(&Sha1sumApplet, true),
     AppletEntry::new(&Sha256sumApplet, true),
     AppletEntry::new(&Sha512sumApplet, true),
-    AppletEntry::new(&ShApplet, true),
+    AppletEntry::new(&ShellApplet::new("sh"), true),
     AppletEntry::new(&SortApplet, true),
     AppletEntry::new(&SleepApplet, true),
     AppletEntry::new(&SuApplet, true),

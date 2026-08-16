@@ -174,7 +174,7 @@ fn builtin_unalias(
 }
 
 fn builtin_read(
-    _state: &mut ShellState,
+    state: &mut ShellState,
     args: &[String],
 ) -> Result<i32, Box<dyn std::error::Error>> {
     let var_name = if args.is_empty() {
@@ -188,7 +188,7 @@ fn builtin_read(
     match stdin.lock().read_line(&mut line) {
         Ok(_) => {
             let line = line.trim_end_matches('\n').trim_end_matches('\r');
-            std::env::set_var(var_name, line);
+            state.set_var(var_name.to_string(), line.to_string());
             Ok(0)
         }
         Err(_) => Ok(1),

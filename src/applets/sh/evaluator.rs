@@ -1,5 +1,5 @@
 use crate::applets::sh::builtins::{execute_builtin, ShellState};
-use crate::applets::sh::parser::{Ast, Command, For, If, List, ListOp, Pipeline, While};
+use crate::applets::sh::parser::{Ast, Command, For, If, List, ListOp, Pipeline, While, Word};
 use crate::core::Dispatcher;
 use std::process::Command as ProcessCommand;
 
@@ -29,19 +29,19 @@ impl Evaluator {
     }
 
     fn execute_command(&mut self, cmd: &Command) -> Result<i32, Box<dyn std::error::Error>> {
-        let name = self.expand_variables(&cmd.name);
+        let name = self.expand_word(&cmd.name);
         let args: Vec<String> = cmd
             .args
             .iter()
-            .map(|arg| self.expand_variables(arg))
+            .map(|arg| self.expand_word(arg))
             .collect();
 
         let mut stdin_redirect: Option<String> = None;
         let mut stdout_redirect: Option<(String, bool)> = None;
-        let mut stderr_redirect: Option<String> = None;
+        let mut stderr_redirect: Option<(String, bool)> = None;
 
         for redir in &cmd.redirections {
-            let target = self.expand_variables(&redir.target);
+            let target = self.expand_word(&redir.target);
             match redir.op {
                 crate::applets::sh::lexer::RedirectOp::In => {
                     stdin_redirect = Some(target);
@@ -53,7 +53,10 @@ impl Evaluator {
                     stdout_redirect = Some((target, true));
                 }
                 crate::applets::sh::lexer::RedirectOp::Err => {
-                    stderr_redirect = Some(target);
+                    stderr_redirect = Some((target, false));
+                }
+                crate::applets::sh::lexer::RedirectOp::ErrAppend => {
+                    stderr_redirect = Some((target, true));
                 }
             }
         }
@@ -89,9 +92,14 @@ impl Evaluator {
         args: &[String],
         stdin_redirect: Option<String>,
         stdout_redirect: Option<(String, bool)>,
-        stderr_redirect: Option<String>,
+        stderr_redirect: Option<(String, bool)>,
     ) -> Result<i32, Box<dyn std::error::Error>> {
         use std::fs::{File, OpenOptions};
+
+        if let Ok(code) = execute_builtin(&mut self.state, name, args) {
+            self.state.last_exit_code = code;
+            return Ok(code);
+        }
 
         let mut cmd = ProcessCommand::new(name);
         cmd.args(args);
@@ -110,8 +118,12 @@ impl Evaluator {
             cmd.stdout(file);
         }
 
-        if let Some(stderr_file) = stderr_redirect {
-            let file = File::create(&stderr_file)?;
+        if let Some((stderr_file, append)) = stderr_redirect {
+            let file = if append {
+                OpenOptions::new().create(true).append(true).open(&stderr_file)?
+            } else {
+                File::create(&stderr_file)?
+            };
             cmd.stderr(file);
         }
 
@@ -137,11 +149,11 @@ impl Evaluator {
             let is_last = idx == pipeline.commands.len() - 1;
 
             if let Ast::Command(cmd) = cmd_ast {
-                let name = self.expand_variables(&cmd.name);
+                let name = self.expand_word(&cmd.name);
                 let args: Vec<String> = cmd
                     .args
                     .iter()
-                    .map(|arg| self.expand_variables(arg))
+                    .map(|arg| self.expand_word(arg))
                     .collect();
 
                 if is_last {
@@ -238,7 +250,7 @@ impl Evaluator {
         let items: Vec<String> = for_stmt
             .items
             .iter()
-            .map(|item| self.expand_variables(item))
+            .map(|item| self.expand_word(item))
             .collect();
 
         let mut last_code = 0;
@@ -273,6 +285,13 @@ impl Evaluator {
         Ok(last_code)
     }
 
+    fn expand_word(&self, word: &Word) -> String {
+        if word.literal {
+            return word.value.clone();
+        }
+        self.expand_variables(&word.value)
+    }
+
     fn expand_variables(&self, input: &str) -> String {
         let mut result = String::new();
         let mut chars = input.chars().peekable();
@@ -293,6 +312,10 @@ impl Evaluator {
                         if let Some(value) = self.state.get_var(&var_name) {
                             result.push_str(value);
                         }
+                    }
+                    Some('?') => {
+                        chars.next();
+                        result.push_str(&self.state.last_exit_code.to_string());
                     }
                     Some(c) if c.is_alphabetic() || *c == '_' => {
                         let mut var_name = String::new();
@@ -382,7 +405,7 @@ mod tests {
     fn test_execute_simple_command() {
         let mut evaluator = Evaluator::new();
         let ast = Ast::Command(Command {
-            name: "true".to_string(),
+            name: Word { value: "true".to_string(), literal: false },
             args: vec![],
             redirections: vec![],
         });
@@ -394,8 +417,8 @@ mod tests {
     fn test_execute_builtin_export() {
         let mut evaluator = Evaluator::new();
         let ast = Ast::Command(Command {
-            name: "export".to_string(),
-            args: vec!["TEST=value".to_string()],
+            name: Word { value: "export".to_string(), literal: false },
+            args: vec![Word { value: "TEST=value".to_string(), literal: false }],
             redirections: vec![],
         });
         let result = evaluator.execute(&ast).unwrap();
@@ -410,11 +433,11 @@ mod tests {
 
         let mut evaluator = Evaluator::new();
         let ast = Ast::Command(Command {
-            name: "echo".to_string(),
-            args: vec!["hello".to_string()],
+            name: Word { value: "echo".to_string(), literal: false },
+            args: vec![Word { value: "hello".to_string(), literal: false }],
             redirections: vec![Redirection {
                 op: RedirectOp::Out,
-                target: output_file.to_str().unwrap().to_string(),
+                target: Word { value: output_file.to_str().unwrap().to_string(), literal: false },
             }],
         });
 
@@ -434,11 +457,11 @@ mod tests {
 
         let mut evaluator = Evaluator::new();
         let ast = Ast::Command(Command {
-            name: "echo".to_string(),
-            args: vec!["second".to_string()],
+            name: Word { value: "echo".to_string(), literal: false },
+            args: vec![Word { value: "second".to_string(), literal: false }],
             redirections: vec![Redirection {
                 op: RedirectOp::Append,
-                target: output_file.to_str().unwrap().to_string(),
+                target: Word { value: output_file.to_str().unwrap().to_string(), literal: false },
             }],
         });
 
@@ -454,13 +477,13 @@ mod tests {
         let mut evaluator = Evaluator::new();
         let ast = Ast::List(List {
             left: Box::new(Ast::Command(Command {
-                name: "true".to_string(),
+                name: Word { value: "true".to_string(), literal: false },
                 args: vec![],
                 redirections: vec![],
             })),
             op: ListOp::And,
             right: Box::new(Ast::Command(Command {
-                name: "true".to_string(),
+                name: Word { value: "true".to_string(), literal: false },
                 args: vec![],
                 redirections: vec![],
             })),
@@ -475,13 +498,13 @@ mod tests {
         let mut evaluator = Evaluator::new();
         let ast = Ast::List(List {
             left: Box::new(Ast::Command(Command {
-                name: "false".to_string(),
+                name: Word { value: "false".to_string(), literal: false },
                 args: vec![],
                 redirections: vec![],
             })),
             op: ListOp::Or,
             right: Box::new(Ast::Command(Command {
-                name: "true".to_string(),
+                name: Word { value: "true".to_string(), literal: false },
                 args: vec![],
                 redirections: vec![],
             })),

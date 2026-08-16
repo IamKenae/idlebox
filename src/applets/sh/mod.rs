@@ -4,4 +4,4 @@ pub mod ish;
 pub mod lexer;
 pub mod parser;
 
-pub use ish::{AshApplet, IshApplet, ShApplet};
+pub use ish::ShellApplet;

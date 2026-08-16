@@ -4,6 +4,7 @@ use std::str::Chars;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Token {
     Word(String),
+    LiteralWord(String),
     Pipe,
     And,
     Or,
@@ -30,6 +31,7 @@ pub enum RedirectOp {
     Append,
     In,
     Err,
+    ErrAppend,
 }
 
 pub struct Lexer<'a> {
@@ -101,12 +103,18 @@ impl<'a> Lexer<'a> {
                             if self.peek_at(1) == Some('>') {
                                 self.advance();
                                 self.advance();
-                                Token::Redirect(RedirectOp::Err)
+                                if self.peek() == Some('>') {
+                                    self.advance();
+                                    Token::Redirect(RedirectOp::ErrAppend)
+                                } else {
+                                    Token::Redirect(RedirectOp::Err)
+                                }
                             } else {
                                 Token::Word(self.read_word()?)
                             }
                         }
-                        '\'' | '"' => Token::Word(self.read_quoted_string()?),
+                        '\'' => Token::LiteralWord(self.read_single_quoted_string()?),
+                        '"' => Token::Word(self.read_double_quoted_string()?),
                         '$' => Token::Word(self.read_word()?),
                         '#' => {
                             self.skip_comment();
@@ -163,8 +171,12 @@ impl<'a> Lexer<'a> {
                 None => break,
                 Some(ch) => match ch {
                     ' ' | '\t' | '\n' | '|' | '&' | ';' | '>' | '<' => break,
-                    '\'' | '"' => {
-                        let quoted = self.read_quoted_string()?;
+                    '\'' => {
+                        let quoted = self.read_single_quoted_string()?;
+                        word.push_str(&quoted);
+                    }
+                    '"' => {
+                        let quoted = self.read_double_quoted_string()?;
                         word.push_str(&quoted);
                     }
                     '$' => {
@@ -188,15 +200,29 @@ impl<'a> Lexer<'a> {
         Ok(word)
     }
 
-    fn read_quoted_string(&mut self) -> Result<String, String> {
-        let quote = self.advance().ok_or("unterminated string")?;
+    fn read_single_quoted_string(&mut self) -> Result<String, String> {
+        self.advance();
         let mut result = String::new();
 
         loop {
             match self.advance() {
-                None => return Err(format!("unterminated {} string", quote)),
-                Some(ch) if ch == quote => break,
-                Some('\\') if quote == '"' => {
+                None => return Err("unterminated single-quoted string".to_string()),
+                Some('\'') => break,
+                Some(ch) => result.push(ch),
+            }
+        }
+        Ok(result)
+    }
+
+    fn read_double_quoted_string(&mut self) -> Result<String, String> {
+        self.advance();
+        let mut result = String::new();
+
+        loop {
+            match self.advance() {
+                None => return Err("unterminated double-quoted string".to_string()),
+                Some('"') => break,
+                Some('\\') => {
                     if let Some(escaped) = self.advance() {
                         match escaped {
                             'n' => result.push('\n'),
@@ -210,7 +236,7 @@ impl<'a> Lexer<'a> {
                         }
                     }
                 }
-                Some('$') if quote == '"' => {
+                Some('$') => {
                     let expanded = self.expand_variable()?;
                     result.push_str(&expanded);
                 }
@@ -404,7 +430,7 @@ mod tests {
             tokens,
             vec![
                 Token::Word("echo".to_string()),
-                Token::Word("hello world".to_string()),
+                Token::LiteralWord("hello world".to_string()),
                 Token::Eof,
             ]
         );
