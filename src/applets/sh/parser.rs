@@ -117,14 +117,14 @@ impl Parser {
     }
 
     fn parse_list(&mut self) -> Result<Ast, String> {
-        let mut left = self.parse_pipeline()?;
+        let mut left = self.parse_list_element()?;
 
         loop {
             match self.peek() {
                 Token::And => {
                     self.advance();
                     self.skip_newlines();
-                    let right = self.parse_pipeline()?;
+                    let right = self.parse_list_element()?;
                     left = Ast::List(List {
                         left: Box::new(left),
                         op: ListOp::And,
@@ -134,7 +134,7 @@ impl Parser {
                 Token::Or => {
                     self.advance();
                     self.skip_newlines();
-                    let right = self.parse_pipeline()?;
+                    let right = self.parse_list_element()?;
                     left = Ast::List(List {
                         left: Box::new(left),
                         op: ListOp::Or,
@@ -151,29 +151,28 @@ impl Parser {
         Ok(left)
     }
 
+    fn parse_list_element(&mut self) -> Result<Ast, String> {
+        match self.peek() {
+            Token::If => self.parse_if(),
+            Token::For => self.parse_for(),
+            Token::While => self.parse_while(),
+            _ => self.parse_pipeline(),
+        }
+    }
+
     fn parse_pipeline(&mut self) -> Result<Ast, String> {
-        let mut commands = vec![self.parse_command()?];
+        let mut commands = vec![self.parse_simple_command()?];
 
         while let Token::Pipe = self.peek() {
             self.advance();
             self.skip_newlines();
-            commands.push(self.parse_command()?);
+            commands.push(self.parse_simple_command()?);
         }
 
         if commands.len() == 1 {
             Ok(commands.pop().unwrap())
         } else {
             Ok(Ast::Pipeline(Pipeline { commands }))
-        }
-    }
-
-    fn parse_command(&mut self) -> Result<Ast, String> {
-        match self.peek() {
-            Token::If => self.parse_if(),
-            Token::For => self.parse_for(),
-            Token::While => self.parse_while(),
-            Token::Word(_) => self.parse_simple_command(),
-            _ => Err(format!("unexpected token: {:?}", self.peek())),
         }
     }
 

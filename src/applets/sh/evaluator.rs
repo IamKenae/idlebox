@@ -221,6 +221,22 @@ impl Evaluator {
     ) -> Result<i32, Box<dyn std::error::Error>> {
         use std::fs::{File, OpenOptions};
 
+        // On non-Unix systems, try builtin/applet first (without redirection support)
+        if self.is_builtin_or_applet(name) {
+            let is_builtin = matches!(
+                name,
+                "cd" | "exit" | "export" | "unset" | "alias" | "unalias" | "read" | "pwd"
+            );
+            let code = if is_builtin {
+                execute_builtin(&mut self.state, name, args).unwrap_or(1)
+            } else {
+                self.dispatch_applet(name, args).unwrap_or(1)
+            };
+            self.state.last_exit_code = code;
+            return Ok(code);
+        }
+
+        // Fall back to external command with redirections
         let mut cmd = ProcessCommand::new(name);
         cmd.args(args);
 
