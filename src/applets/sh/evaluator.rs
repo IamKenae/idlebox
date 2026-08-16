@@ -371,9 +371,13 @@ impl Evaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::applets::sh::lexer::RedirectOp;
+    #[cfg(unix)]
     use crate::applets::sh::parser::Redirection;
+    #[cfg(unix)]
     use std::fs;
+    #[cfg(unix)]
     use tempfile::TempDir;
 
     #[test]
