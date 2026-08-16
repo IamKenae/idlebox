@@ -1,15 +1,14 @@
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read};
 
-pub fn hex_encode(data: &[u8]) -> String {
+pub(crate) fn hex_encode(data: &[u8]) -> String {
     const HEX_CHARS: &[u8; 16] = b"0123456789abcdef";
-    let mut buf = vec![0u8; data.len() * 2];
-    for (i, &b) in data.iter().enumerate() {
-        buf[i * 2] = HEX_CHARS[(b >> 4) as usize];
-        buf[i * 2 + 1] = HEX_CHARS[(b & 0xf) as usize];
+    let mut out = String::with_capacity(data.len() * 2);
+    for &byte in data {
+        out.push(HEX_CHARS[(byte >> 4) as usize] as char);
+        out.push(HEX_CHARS[(byte & 0xf) as usize] as char);
     }
-    // Safe because HEX_CHARS is valid ASCII
-    String::from_utf8(buf).unwrap()
+    out
 }
 
 pub trait HashImpl {

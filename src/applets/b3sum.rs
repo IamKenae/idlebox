@@ -70,6 +70,7 @@ fn compress(
     v[14] = block_len;
     v[15] = flags;
 
+    let mut next_m = [0u32; 16];
     for _ in 0..7 {
         quarter_round(&mut v, 0, 4, 8, 12, m[0], m[1]);
         quarter_round(&mut v, 1, 5, 9, 13, m[2], m[3]);
@@ -81,7 +82,6 @@ fn compress(
         quarter_round(&mut v, 2, 7, 8, 13, m[12], m[13]);
         quarter_round(&mut v, 3, 4, 9, 14, m[14], m[15]);
 
-        let mut next_m = [0u32; 16];
         for i in 0..16 {
             next_m[i] = m[MSG_PERMUTATION[i]];
         }

@@ -3,6 +3,7 @@ use std::process::Command;
 
 mod common;
 use common::get_bin;
+
 #[test]
 fn test_sha512sum_basic() {
     let bin = get_bin();
@@ -42,4 +43,50 @@ fn test_sha512sum_check() {
     assert!(output.status.success());
     let out = String::from_utf8(output.stdout).unwrap();
     assert!(out.contains("OK"));
+}
+
+#[test]
+fn test_sha512sum_empty_input() {
+    let bin = get_bin();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("empty.txt");
+    std::fs::write(&file, "").unwrap();
+
+    let output = std::process::Command::new(&bin)
+        .arg("sha512sum")
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let out = String::from_utf8(output.stdout).unwrap();
+    assert!(out.starts_with("cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e  "));
+}
+
+#[test]
+fn test_sha512sum_binary_mode() {
+    let bin = get_bin();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("test.bin");
+    std::fs::write(&file, "hello world").unwrap();
+
+    let output = std::process::Command::new(&bin)
+        .arg("sha512sum")
+        .arg("-b")
+        .arg(&file)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let out = String::from_utf8(output.stdout).unwrap();
+    assert!(out.contains("309ecc489c12d6eb4cc40f50c902f2b4d0ed77ee511a7c7a9bcd3ca86d4cd86f989dd35bc5ff499670da34255b45b0cfd830e81f605dcf7dc5542e93ae9cd76f *"));
+}
+
+#[test]
+fn test_sha512sum_nonexistent_file() {
+    let bin = get_bin();
+    let output = std::process::Command::new(&bin)
+        .arg("sha512sum")
+        .arg("does_not_exist.txt")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
 }
