@@ -99,6 +99,7 @@ fn test_ish_semicolon_separator() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_ish_stdout_redirect() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
     let output_file = temp_dir.path().join("output.txt");
@@ -116,6 +117,7 @@ fn test_ish_stdout_redirect() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_ish_append_redirect() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
     let output_file = temp_dir.path().join("output.txt");
@@ -252,6 +254,7 @@ fn test_ish_pipeline() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_ish_builtin_cd() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
     let dir_path = temp_dir.path();
