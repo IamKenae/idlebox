@@ -92,7 +92,6 @@ impl Evaluator {
         stderr_redirect: Option<String>,
     ) -> Result<i32, Box<dyn std::error::Error>> {
         use std::fs::{File, OpenOptions};
-        use std::process::Stdio;
 
         let mut cmd = ProcessCommand::new(name);
         cmd.args(args);
@@ -149,7 +148,7 @@ impl Evaluator {
                     let mut cmd_proc = ProcessCommand::new(&name);
                     cmd_proc.args(&args);
                     
-                    if let Some(mut prev) = children.last_mut() {
+                    if let Some(prev) = children.last_mut() {
                         if let Some(stdout) = prev.stdout.take() {
                             cmd_proc.stdin(stdout);
                         }
@@ -173,7 +172,7 @@ impl Evaluator {
                     cmd_proc.args(&args);
                     cmd_proc.stdout(Stdio::piped());
                     
-                    if let Some(mut prev) = children.last_mut() {
+                    if let Some(prev) = children.last_mut() {
                         if let Some(stdout) = prev.stdout.take() {
                             cmd_proc.stdin(stdout);
                         }
