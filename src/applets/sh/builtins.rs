@@ -121,8 +121,11 @@ fn builtin_export(
             let key = &arg[..eq_pos];
             let value = &arg[eq_pos + 1..];
             state.set_var(key.to_string(), value.to_string());
-        } else if let Some(value) = state.get_var(arg) {
-            state.set_var(arg.clone(), value.clone());
+        } else {
+            // POSIX: export VAR should set VAR to empty string if it doesn't exist
+            if state.get_var(arg).is_none() {
+                state.set_var(arg.clone(), String::new());
+            }
         }
     }
     Ok(0)
