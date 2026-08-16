@@ -269,8 +269,7 @@ impl Parser {
             }
             self.expect(Token::Then)?;
             self.skip_newlines();
-            let elif_body =
-                self.parse_compound_body(&[Token::Elif, Token::Else, Token::Fi])?;
+            let elif_body = self.parse_compound_body(&[Token::Elif, Token::Else, Token::Fi])?;
             self.skip_newlines();
             elif_branches.push((elif_condition, elif_body));
         }
@@ -278,9 +277,7 @@ impl Parser {
         let else_body = if let Token::Else = self.peek() {
             self.advance();
             self.skip_newlines();
-            Some(Box::new(
-                self.parse_compound_body(&[Token::Fi])?,
-            ))
+            Some(Box::new(self.parse_compound_body(&[Token::Fi])?))
         } else {
             None
         };
@@ -447,7 +444,13 @@ mod tests {
         match ast {
             Ast::Command(cmd) => {
                 assert_eq!(cmd.name.value, "echo");
-                assert_eq!(cmd.args.iter().map(|w| w.value.as_str()).collect::<Vec<_>>(), vec!["hello"]);
+                assert_eq!(
+                    cmd.args
+                        .iter()
+                        .map(|w| w.value.as_str())
+                        .collect::<Vec<_>>(),
+                    vec!["hello"]
+                );
                 assert!(cmd.redirections.is_empty());
             }
             _ => panic!("expected Command"),
@@ -460,7 +463,13 @@ mod tests {
         match ast {
             Ast::Command(cmd) => {
                 assert_eq!(cmd.name.value, "echo");
-                assert_eq!(cmd.args.iter().map(|w| w.value.as_str()).collect::<Vec<_>>(), vec!["hello"]);
+                assert_eq!(
+                    cmd.args
+                        .iter()
+                        .map(|w| w.value.as_str())
+                        .collect::<Vec<_>>(),
+                    vec!["hello"]
+                );
                 assert_eq!(cmd.redirections.len(), 1);
                 assert_eq!(cmd.redirections[0].op, RedirectOp::Out);
                 assert_eq!(cmd.redirections[0].target.value, "file.txt");
@@ -482,7 +491,13 @@ mod tests {
                 match &pipe.commands[1] {
                     Ast::Command(cmd) => {
                         assert_eq!(cmd.name.value, "grep");
-                        assert_eq!(cmd.args.iter().map(|w| w.value.as_str()).collect::<Vec<_>>(), vec!["foo"]);
+                        assert_eq!(
+                            cmd.args
+                                .iter()
+                                .map(|w| w.value.as_str())
+                                .collect::<Vec<_>>(),
+                            vec!["foo"]
+                        );
                     }
                     _ => panic!("expected Command"),
                 }
@@ -573,7 +588,14 @@ mod tests {
         match ast {
             Ast::For(for_stmt) => {
                 assert_eq!(for_stmt.var, "i");
-                assert_eq!(for_stmt.items.iter().map(|w| w.value.as_str()).collect::<Vec<_>>(), vec!["1", "2", "3"]);
+                assert_eq!(
+                    for_stmt
+                        .items
+                        .iter()
+                        .map(|w| w.value.as_str())
+                        .collect::<Vec<_>>(),
+                    vec!["1", "2", "3"]
+                );
             }
             _ => panic!("expected For"),
         }
@@ -583,12 +605,10 @@ mod tests {
     fn test_while_loop() {
         let ast = Parser::parse("while true; do echo loop; done").unwrap();
         match ast {
-            Ast::While(while_stmt) => {
-                match *while_stmt.condition {
-                    Ast::Command(cmd) => assert_eq!(cmd.name.value, "true"),
-                    _ => panic!("expected Command"),
-                }
-            }
+            Ast::While(while_stmt) => match *while_stmt.condition {
+                Ast::Command(cmd) => assert_eq!(cmd.name.value, "true"),
+                _ => panic!("expected Command"),
+            },
             _ => panic!("expected While"),
         }
     }

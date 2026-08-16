@@ -41,7 +41,10 @@ impl Applet for ShellApplet {
         println!("Usage: {} [OPTIONS] [SCRIPT]", self.name);
         println!("       {} -c COMMAND", self.name);
         println!();
-        println!("Idle Shell ({}) is a POSIX-compatible shell interpreter.", self.name);
+        println!(
+            "Idle Shell ({}) is a POSIX-compatible shell interpreter.",
+            self.name
+        );
         println!();
         println!("Options:");
         println!("  -c COMMAND    Execute COMMAND and exit");

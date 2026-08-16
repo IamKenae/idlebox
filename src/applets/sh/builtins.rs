@@ -63,10 +63,7 @@ pub fn execute_builtin(
     }
 }
 
-fn builtin_cd(
-    state: &mut ShellState,
-    args: &[String],
-) -> Result<i32, Box<dyn std::error::Error>> {
+fn builtin_cd(state: &mut ShellState, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
     let target = if args.is_empty() {
         state
             .env
@@ -177,11 +174,7 @@ fn builtin_read(
     state: &mut ShellState,
     args: &[String],
 ) -> Result<i32, Box<dyn std::error::Error>> {
-    let var_name = if args.is_empty() {
-        "REPLY"
-    } else {
-        &args[0]
-    };
+    let var_name = if args.is_empty() { "REPLY" } else { &args[0] };
 
     let stdin = io::stdin();
     let mut line = String::new();

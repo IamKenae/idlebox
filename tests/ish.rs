@@ -139,11 +139,7 @@ fn test_ish_script_file() {
     let temp_dir = TempDir::new().expect("failed to create temp dir");
     let script_file = temp_dir.path().join("test.sh");
 
-    fs::write(
-        &script_file,
-        "echo line1\necho line2\nexit 0\n",
-    )
-    .expect("failed to write script");
+    fs::write(&script_file, "echo line1\necho line2\nexit 0\n").expect("failed to write script");
 
     let output = idlebox_bin()
         .arg("ish")
