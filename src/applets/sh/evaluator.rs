@@ -635,9 +635,9 @@ mod tests {
     #[cfg(unix)]
     use std::fs;
     #[cfg(unix)]
-    use tempfile::TempDir;
-    #[cfg(unix)]
     use std::sync::Mutex;
+    #[cfg(unix)]
+    use tempfile::TempDir;
 
     #[cfg(unix)]
     static FD_TEST_MUTEX: Mutex<()> = Mutex::new(());
