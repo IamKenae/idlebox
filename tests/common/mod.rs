@@ -1,6 +1,3 @@
-use std::fs;
-use std::process::Command;
-
 pub fn get_bin() -> String {
     let mut path = std::env::current_exe().unwrap();
     path.pop();

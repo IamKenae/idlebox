@@ -1,15 +1,8 @@
 use std::fs;
 use std::process::Command;
 
-fn get_bin() -> String {
-    let mut path = std::env::current_exe().unwrap();
-    path.pop();
-    if path.ends_with("deps") {
-        path.pop();
-    }
-    path.join("idlebox").to_str().unwrap().to_string()
-}
-
+mod common;
+use common::get_bin;
 #[test]
 fn test_sha256sum_basic() {
     let bin = get_bin();
@@ -22,7 +15,7 @@ fn test_sha256sum_basic() {
         .arg(&file)
         .output()
         .unwrap();
-    
+
     assert!(output.status.success());
     let out = String::from_utf8(output.stdout).unwrap();
     // echo -n "hello world" | sha256sum -> b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9
@@ -37,7 +30,14 @@ fn test_sha256sum_check() {
     fs::write(&file, "hello world").unwrap();
 
     let check_file = dir.path().join("check.sha256");
-    fs::write(&check_file, format!("b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9  {}\n", file.display())).unwrap();
+    fs::write(
+        &check_file,
+        format!(
+            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9  {}\n",
+            file.display()
+        ),
+    )
+    .unwrap();
 
     let output = Command::new(&bin)
         .arg("sha256sum")

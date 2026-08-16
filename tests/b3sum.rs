@@ -1,15 +1,8 @@
 use std::fs;
 use std::process::Command;
 
-fn get_bin() -> String {
-    let mut path = std::env::current_exe().unwrap();
-    path.pop();
-    if path.ends_with("deps") {
-        path.pop();
-    }
-    path.join("idlebox").to_str().unwrap().to_string()
-}
-
+mod common;
+use common::get_bin;
 #[test]
 fn test_b3sum_basic() {
     let bin = get_bin();
@@ -61,16 +54,14 @@ fn test_b3sum_parallel_large() {
     f.write_all(&data).unwrap();
     let path = f.path().to_str().unwrap().to_string();
     let bin = get_bin();
-    let output = Command::new(&bin)
-        .arg("b3sum")
-        .arg(&path)
-        .output()
-        .unwrap();
+    let output = Command::new(&bin).arg("b3sum").arg(&path).output().unwrap();
 
     assert!(output.status.success());
     let out = String::from_utf8(output.stdout).unwrap();
     assert!(out.contains(&path));
-    // The hash should be 64 characters long
+    // Use hardcoded known good hash for this 1MB+10 byte vector to avoid external blake3 dependency
+    let expected_hash = "4047d64869f6ac20b82026cc0ce75e2079a78a545586437c2856a9014b258e0b";
+
     let hash_part = out.split_whitespace().next().unwrap();
-    assert_eq!(hash_part.len(), 64);
+    assert_eq!(hash_part, expected_hash);
 }

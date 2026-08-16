@@ -2,8 +2,11 @@ use std::fs::File;
 use std::io::{self, BufReader, Read};
 #[cfg(unix)]
 use std::os::unix::fs::FileExt;
+#[cfg(unix)]
 use std::sync::atomic::{AtomicUsize, Ordering};
+#[cfg(unix)]
 use std::sync::Arc;
+#[cfg(unix)]
 use std::thread;
 
 use crate::applets::hash_common::{hex_encode, run_hash_applet, HashImpl};
@@ -221,15 +224,21 @@ impl HashImpl for Blake3Hasher {
 
     fn update(&mut self, mut input: &[u8]) {
         while !input.is_empty() {
-            let chunk_bytes_processed = self.chunk_state.blocks_compressed as usize * 64 + self.chunk_state.block_len as usize;
-            if chunk_bytes_processed == CHUNKS_PER_BLOCK {
+            let chunk_bytes_processed = self.chunk_state.blocks_compressed as usize * 64
+                + self.chunk_state.block_len as usize;
+            if chunk_bytes_processed == BYTES_PER_CHUNK {
                 let cv = self.chunk_state.output().chaining_value();
                 self.push_cv_at_height(cv, 0);
-                self.chunk_state = ChunkState::new(IV, self.chunk_state.chunk_counter + 1, self.chunk_state.flags);
+                self.chunk_state = ChunkState::new(
+                    IV,
+                    self.chunk_state.chunk_counter + 1,
+                    self.chunk_state.flags,
+                );
             }
 
-            let chunk_bytes_processed = self.chunk_state.blocks_compressed as usize * 64 + self.chunk_state.block_len as usize;
-            let take = (CHUNKS_PER_BLOCK - chunk_bytes_processed).min(input.len());
+            let chunk_bytes_processed = self.chunk_state.blocks_compressed as usize * 64
+                + self.chunk_state.block_len as usize;
+            let take = (BYTES_PER_CHUNK - chunk_bytes_processed).min(input.len());
             self.chunk_state.update(&input[..take]);
             input = &input[take..];
         }
@@ -263,6 +272,7 @@ impl HashImpl for Blake3Hasher {
 
         let f = File::open(file)?;
         let meta = f.metadata()?;
+        #[allow(unused_variables)]
         let size = meta.len();
 
         #[cfg(unix)]
@@ -300,11 +310,14 @@ impl Blake3Hasher {
 }
 
 // Number of bytes per chunk
-const CHUNKS_PER_BLOCK: usize = 1024;
+const BYTES_PER_CHUNK: usize = 1024;
+#[cfg(unix)]
+const CHUNKS_PER_1MB: usize = 1024 * 1024 / BYTES_PER_CHUNK;
 // Max tree height for parallel processing
+#[cfg(unix)]
 const TREE_HEIGHT: u8 = 10;
 
-// We use `read_exact_at` for lock-free parallel I/O. Since this is an extension 
+// We use `read_exact_at` for lock-free parallel I/O. Since this is an extension
 // trait in std::os::unix, this parallel path is only enabled on Unix systems.
 // On Windows, it gracefully falls back to the standard sequential processing in hash_file.
 #[cfg(unix)]
@@ -336,7 +349,7 @@ fn hash_file_parallel(f: File, size: u64) -> io::Result<String> {
                     f.read_exact_at(&mut buf, (idx as u64) * chunk_size)?;
 
                     let mut local_hasher = Blake3Hasher::new();
-                    local_hasher.chunk_state.chunk_counter = (idx as u64) * (CHUNKS_PER_BLOCK as u64);
+                    local_hasher.chunk_state.chunk_counter = (idx as u64) * (CHUNKS_PER_1MB as u64);
                     local_hasher.update(&buf);
 
                     let mut output = local_hasher.chunk_state.output();
@@ -355,7 +368,9 @@ fn hash_file_parallel(f: File, size: u64) -> io::Result<String> {
 
     let mut all_cvs = vec![[0u32; 8]; num_full_blocks];
     for handle in handles {
-        let results = handle.join().map_err(|_| io::Error::other("thread panicked"))??;
+        let results = handle
+            .join()
+            .map_err(|_| io::Error::other("thread panicked"))??;
         for (idx, cv) in results {
             all_cvs[idx] = cv;
         }
@@ -366,7 +381,7 @@ fn hash_file_parallel(f: File, size: u64) -> io::Result<String> {
         main_hasher.push_cv_at_height(cv, TREE_HEIGHT);
     }
 
-    main_hasher.chunk_state.chunk_counter = (num_full_blocks as u64) * (CHUNKS_PER_BLOCK as u64);
+    main_hasher.chunk_state.chunk_counter = (num_full_blocks as u64) * (CHUNKS_PER_1MB as u64);
 
     let rem = size % chunk_size;
     if rem > 0 {

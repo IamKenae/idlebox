@@ -1,11 +1,12 @@
 use crate::applets::{
-    B3sumApplet, BasenameApplet, BracketApplet, CatApplet, ChgrpApplet, ChmodApplet, ChownApplet, CpApplet,
-    CutApplet, DfApplet, DirnameApplet, DuApplet, EchoApplet, EnvApplet, ExprApplet, FalseApplet,
-    FindApplet, FreeApplet, GrepApplet, GunzipApplet, GzipApplet, HeadApplet, IdApplet, KillApplet,
-    LnApplet, LsApplet, Md5sumApplet, MkdirApplet, MvApplet, PrintenvApplet, PrintfApplet, PsApplet, PwdApplet,
-    ReadlinkApplet, RealpathApplet, RelaxApplet, RmApplet, Sha1sumApplet, Sha256sumApplet, Sha512sumApplet, SleepApplet, SortApplet, SuApplet,
-    TailApplet, TarApplet, TeeApplet, TestApplet, TouchApplet, TrApplet, TreeApplet, TrueApplet,
-    UnameApplet, UniqApplet, UnzipApplet, UptimeApplet, WcApplet, WhoamiApplet, ZcatApplet,
+    B3sumApplet, BasenameApplet, BracketApplet, CatApplet, ChgrpApplet, ChmodApplet, ChownApplet,
+    CpApplet, CutApplet, DfApplet, DirnameApplet, DuApplet, EchoApplet, EnvApplet, ExprApplet,
+    FalseApplet, FindApplet, FreeApplet, GrepApplet, GunzipApplet, GzipApplet, HeadApplet,
+    IdApplet, KillApplet, LnApplet, LsApplet, Md5sumApplet, MkdirApplet, MvApplet, PrintenvApplet,
+    PrintfApplet, PsApplet, PwdApplet, ReadlinkApplet, RealpathApplet, RelaxApplet, RmApplet,
+    Sha1sumApplet, Sha256sumApplet, Sha512sumApplet, SleepApplet, SortApplet, SuApplet, TailApplet,
+    TarApplet, TeeApplet, TestApplet, TouchApplet, TrApplet, TreeApplet, TrueApplet, UnameApplet,
+    UniqApplet, UnzipApplet, UptimeApplet, WcApplet, WhoamiApplet, ZcatApplet,
 };
 use crate::core::Applet;
 

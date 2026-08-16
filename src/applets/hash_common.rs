@@ -9,7 +9,7 @@ pub fn hex_encode(data: &[u8]) -> String {
         buf[i * 2 + 1] = HEX_CHARS[(b & 0xf) as usize];
     }
     // Safe because HEX_CHARS is valid ASCII
-    unsafe { String::from_utf8_unchecked(buf) }
+    String::from_utf8(buf).unwrap()
 }
 
 pub trait HashImpl {
