@@ -1,7 +1,7 @@
-pub mod builtins;
-pub mod evaluator;
+pub(crate) mod builtins;
+pub(crate) mod evaluator;
 pub mod ish;
-pub mod lexer;
-pub mod parser;
+pub(crate) mod lexer;
+pub(crate) mod parser;
 
 pub use ish::ShellApplet;

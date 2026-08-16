@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::{self, BufRead};
 
+#[derive(Clone)]
 pub struct ShellState {
     pub env: HashMap<String, String>,
     pub aliases: HashMap<String, String>,

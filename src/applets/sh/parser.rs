@@ -141,6 +141,9 @@ impl Parser {
                         right: Box::new(right),
                     });
                 }
+                Token::Amp => {
+                    return Err("background execution (&) is not supported".to_string());
+                }
                 _ => break,
             }
         }

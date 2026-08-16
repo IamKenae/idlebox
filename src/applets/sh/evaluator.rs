@@ -3,6 +3,15 @@ use crate::applets::sh::parser::{Ast, Command, For, If, List, ListOp, Pipeline, 
 use crate::core::Dispatcher;
 use std::process::Command as ProcessCommand;
 
+#[cfg(unix)]
+mod libc {
+    extern "C" {
+        pub fn dup(oldfd: i32) -> i32;
+        pub fn dup2(oldfd: i32, newfd: i32) -> i32;
+        pub fn close(fd: i32) -> i32;
+    }
+}
+
 pub struct Evaluator {
     pub state: ShellState,
     dispatcher: Dispatcher,
@@ -28,21 +37,23 @@ impl Evaluator {
         }
     }
 
-    fn execute_command(&mut self, cmd: &Command) -> Result<i32, Box<dyn std::error::Error>> {
-        let mut name = self.expand_word(&cmd.name);
-        let mut args: Vec<String> = cmd.args.iter().map(|arg| self.expand_word(arg)).collect();
-
-        // Expand aliases
-        if let Some(alias_value) = self.state.aliases.get(&name).cloned() {
-            let mut alias_parts = alias_value.split_whitespace();
-            if let Some(first) = alias_parts.next() {
-                name = first.to_string();
-                let alias_args: Vec<String> = alias_parts.map(|s| s.to_string()).collect();
+    fn expand_alias(&self, name: &str, args: Vec<String>) -> (String, Vec<String>) {
+        if let Some(alias_value) = self.state.aliases.get(name).cloned() {
+            let mut parts = alias_value.split_whitespace();
+            if let Some(first) = parts.next() {
+                let alias_args: Vec<String> = parts.map(|s| s.to_string()).collect();
                 let mut new_args = alias_args;
                 new_args.extend(args);
-                args = new_args;
+                return (first.to_string(), new_args);
             }
         }
+        (name.to_string(), args)
+    }
+
+    fn execute_command(&mut self, cmd: &Command) -> Result<i32, Box<dyn std::error::Error>> {
+        let raw_name = self.expand_word(&cmd.name);
+        let raw_args: Vec<String> = cmd.args.iter().map(|arg| self.expand_word(arg)).collect();
+        let (name, args) = self.expand_alias(&raw_name, raw_args);
 
         let mut stdin_redirect: Option<String> = None;
         let mut stdout_redirect: Option<(String, bool)> = None;
@@ -94,6 +105,7 @@ impl Evaluator {
         Ok(exit_code)
     }
 
+    #[cfg(unix)]
     fn execute_command_with_redirects(
         &mut self,
         name: &str,
@@ -103,35 +115,87 @@ impl Evaluator {
         stderr_redirect: Option<(String, bool)>,
     ) -> Result<i32, Box<dyn std::error::Error>> {
         use std::fs::{File, OpenOptions};
+        use std::os::unix::io::AsRawFd;
+
+        let is_builtin_or_applet = self.is_builtin_or_applet(name);
+
+        if is_builtin_or_applet {
+            let saved_stdin = stdin_redirect.as_ref().map(|_| unsafe { libc::dup(0) });
+            let saved_stdout = stdout_redirect.as_ref().map(|_| unsafe { libc::dup(1) });
+            let saved_stderr = stderr_redirect.as_ref().map(|_| unsafe { libc::dup(2) });
+
+            if let Some(path) = &stdin_redirect {
+                let file = File::open(path)?;
+                unsafe { libc::dup2(file.as_raw_fd(), 0) };
+            }
+            if let Some((path, append)) = &stdout_redirect {
+                let file = if *append {
+                    OpenOptions::new().create(true).append(true).open(path)?
+                } else {
+                    File::create(path)?
+                };
+                unsafe { libc::dup2(file.as_raw_fd(), 1) };
+            }
+            if let Some((path, append)) = &stderr_redirect {
+                let file = if *append {
+                    OpenOptions::new().create(true).append(true).open(path)?
+                } else {
+                    File::create(path)?
+                };
+                unsafe { libc::dup2(file.as_raw_fd(), 2) };
+            }
+
+            let code = if matches!(
+                name,
+                "cd" | "exit" | "export" | "unset" | "alias" | "unalias" | "read" | "pwd"
+            ) {
+                execute_builtin(&mut self.state, name, args).unwrap_or(1)
+            } else {
+                self.dispatch_applet(name, args).unwrap_or(1)
+            };
+
+            if let Some(fd) = saved_stdin {
+                unsafe {
+                    libc::dup2(fd, 0);
+                    libc::close(fd);
+                }
+            }
+            if let Some(fd) = saved_stdout {
+                unsafe {
+                    libc::dup2(fd, 1);
+                    libc::close(fd);
+                }
+            }
+            if let Some(fd) = saved_stderr {
+                unsafe {
+                    libc::dup2(fd, 2);
+                    libc::close(fd);
+                }
+            }
+
+            self.state.last_exit_code = code;
+            return Ok(code);
+        }
 
         let mut cmd = ProcessCommand::new(name);
         cmd.args(args);
 
-        if let Some(stdin_file) = stdin_redirect {
-            let file = File::open(&stdin_file)?;
-            cmd.stdin(file);
+        if let Some(path) = stdin_redirect {
+            cmd.stdin(File::open(&path)?);
         }
-
-        if let Some((stdout_file, append)) = stdout_redirect {
+        if let Some((path, append)) = stdout_redirect {
             let file = if append {
-                OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&stdout_file)?
+                OpenOptions::new().create(true).append(true).open(&path)?
             } else {
-                File::create(&stdout_file)?
+                File::create(&path)?
             };
             cmd.stdout(file);
         }
-
-        if let Some((stderr_file, append)) = stderr_redirect {
+        if let Some((path, append)) = stderr_redirect {
             let file = if append {
-                OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&stderr_file)?
+                OpenOptions::new().create(true).append(true).open(&path)?
             } else {
-                File::create(&stderr_file)?
+                File::create(&path)?
             };
             cmd.stderr(file);
         }
@@ -146,6 +210,65 @@ impl Evaluator {
         Ok(code)
     }
 
+    #[cfg(not(unix))]
+    fn execute_command_with_redirects(
+        &mut self,
+        name: &str,
+        args: &[String],
+        stdin_redirect: Option<String>,
+        stdout_redirect: Option<(String, bool)>,
+        stderr_redirect: Option<(String, bool)>,
+    ) -> Result<i32, Box<dyn std::error::Error>> {
+        use std::fs::{File, OpenOptions};
+
+        let mut cmd = ProcessCommand::new(name);
+        cmd.args(args);
+
+        if let Some(path) = stdin_redirect {
+            cmd.stdin(File::open(&path)?);
+        }
+        if let Some((path, append)) = stdout_redirect {
+            let file = if append {
+                OpenOptions::new().create(true).append(true).open(&path)?
+            } else {
+                File::create(&path)?
+            };
+            cmd.stdout(file);
+        }
+        if let Some((path, append)) = stderr_redirect {
+            let file = if append {
+                OpenOptions::new().create(true).append(true).open(&path)?
+            } else {
+                File::create(&path)?
+            };
+            cmd.stderr(file);
+        }
+
+        for (key, value) in &self.state.env {
+            cmd.env(key, value);
+        }
+
+        let status = cmd.status()?;
+        let code = status.code().unwrap_or(1);
+        self.state.last_exit_code = code;
+        Ok(code)
+    }
+
+    fn is_builtin_or_applet(&self, name: &str) -> bool {
+        if matches!(
+            name,
+            "cd" | "exit" | "export" | "unset" | "alias" | "unalias" | "read" | "pwd"
+        ) {
+            return true;
+        }
+        // Check if it's a known applet by trying with empty args
+        // If it fails with "applet not found", it's not an applet
+        match self.dispatcher.dispatch(name, &[]) {
+            Ok(_) => true,
+            Err(e) => !e.to_string().contains("applet not found"),
+        }
+    }
+
     fn execute_pipeline(&mut self, pipeline: &Pipeline) -> Result<i32, Box<dyn std::error::Error>> {
         if pipeline.commands.len() == 1 {
             return self.execute(&pipeline.commands[0]);
@@ -153,32 +276,47 @@ impl Evaluator {
 
         use std::process::Stdio;
         let mut children: Vec<std::process::Child> = Vec::new();
+        let mut pending_input: Option<std::fs::File> = None;
 
         for (idx, cmd_ast) in pipeline.commands.iter().enumerate() {
             let is_last = idx == pipeline.commands.len() - 1;
 
             if let Ast::Command(cmd) = cmd_ast {
-                let mut name = self.expand_word(&cmd.name);
-                let mut args: Vec<String> =
+                let raw_name = self.expand_word(&cmd.name);
+                let raw_args: Vec<String> =
                     cmd.args.iter().map(|arg| self.expand_word(arg)).collect();
-
-                // Expand aliases
-                if let Some(alias_value) = self.state.aliases.get(&name).cloned() {
-                    let mut alias_parts = alias_value.split_whitespace();
-                    if let Some(first) = alias_parts.next() {
-                        name = first.to_string();
-                        let alias_args: Vec<String> = alias_parts.map(|s| s.to_string()).collect();
-                        let mut new_args = alias_args;
-                        new_args.extend(args);
-                        args = new_args;
-                    }
-                }
-
-                let mut cmd_proc = ProcessCommand::new(&name);
-                cmd_proc.args(&args);
+                let (name, args) = self.expand_alias(&raw_name, raw_args);
 
                 if is_last {
-                    if let Some(prev) = children.last_mut() {
+                    
+                    // Check if we have pending input from a previous command
+                    let has_pending_input = pending_input.is_some();
+                    
+                    // Last command: try builtin/applet first (only if no pending input)
+                    if !has_pending_input {
+                        if let Ok(code) = execute_builtin(&mut self.state, &name, &args) {
+                            for mut child in children {
+                                let _ = child.wait();
+                            }
+                            self.state.last_exit_code = code;
+                            return Ok(code);
+                        }
+                        if let Ok(code) = self.dispatch_applet(&name, &args) {
+                            for mut child in children {
+                                let _ = child.wait();
+                            }
+                            self.state.last_exit_code = code;
+                            return Ok(code);
+                        }
+                    }
+
+                    // Fall back to external command
+                    let mut cmd_proc = ProcessCommand::new(&name);
+                    cmd_proc.args(&args);
+
+                    if let Some(file) = pending_input.take() {
+                        cmd_proc.stdin(file);
+                    } else if let Some(prev) = children.last_mut() {
                         if let Some(stdout) = prev.stdout.take() {
                             cmd_proc.stdin(stdout);
                         }
@@ -190,33 +328,113 @@ impl Evaluator {
 
                     let status = cmd_proc.status()?;
                     let code = status.code().unwrap_or(1);
-
                     for mut child in children {
                         let _ = child.wait();
                     }
-
                     self.state.last_exit_code = code;
                     return Ok(code);
                 } else {
-                    cmd_proc.stdout(Stdio::piped());
+                    // Non-last command: try builtin/applet with output capture
+                    let is_builtin_or_applet = self.is_builtin_or_applet(&name);
 
-                    if let Some(prev) = children.last_mut() {
-                        if let Some(stdout) = prev.stdout.take() {
-                            cmd_proc.stdin(stdout);
-                        }
-                    }
+                    if is_builtin_or_applet {
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::io::AsRawFd;
 
-                    for (key, value) in &self.state.env {
-                        cmd_proc.env(key, value);
-                    }
+                            let temp_path = std::env::temp_dir().join(format!(
+                                "ish_pipe_{}_{}",
+                                std::process::id(),
+                                idx
+                            ));
+                            let saved_stdout = unsafe { libc::dup(1) };
+                            let temp_file = std::fs::File::create(&temp_path)?;
+                            unsafe { libc::dup2(temp_file.as_raw_fd(), 1) };
 
-                    match cmd_proc.spawn() {
-                        Ok(child) => children.push(child),
-                        Err(e) => {
-                            for mut child in children {
-                                let _ = child.wait();
+                            let _code = if matches!(
+                                name.as_str(),
+                                "cd"
+                                    | "exit"
+                                    | "export"
+                                    | "unset"
+                                    | "alias"
+                                    | "unalias"
+                                    | "read"
+                                    | "pwd"
+                            ) {
+                                execute_builtin(&mut self.state, &name, &args)
+                            } else {
+                                self.dispatch_applet(&name, &args)
+                            };
+
+                            unsafe {
+                                libc::dup2(saved_stdout, 1);
+                                libc::close(saved_stdout);
                             }
-                            return Err(e.into());
+                            drop(temp_file);
+
+                            // Open the temp file for reading and pass it as input to the next command
+                            let input_file = std::fs::File::open(&temp_path)?;
+                            pending_input = Some(input_file);
+                            // Clean up the temp file after it's been opened
+                            let _ = std::fs::remove_file(&temp_path);
+                        }
+
+                        #[cfg(not(unix))]
+                        {
+                            // On non-Unix, fall through to external command
+                            let mut cmd_proc = ProcessCommand::new(&name);
+                            cmd_proc.args(&args);
+                            cmd_proc.stdout(Stdio::piped());
+
+                            if let Some(file) = pending_input.take() {
+                                cmd_proc.stdin(file);
+                            } else if let Some(prev) = children.last_mut() {
+                                if let Some(stdout) = prev.stdout.take() {
+                                    cmd_proc.stdin(stdout);
+                                }
+                            }
+
+                            for (key, value) in &self.state.env {
+                                cmd_proc.env(key, value);
+                            }
+
+                            match cmd_proc.spawn() {
+                                Ok(child) => children.push(child),
+                                Err(e) => {
+                                    for mut child in children {
+                                        let _ = child.wait();
+                                    }
+                                    return Err(e.into());
+                                }
+                            }
+                        }
+                    } else {
+                        // External command
+                        let mut cmd_proc = ProcessCommand::new(&name);
+                        cmd_proc.args(&args);
+                        cmd_proc.stdout(Stdio::piped());
+
+                        if let Some(file) = pending_input.take() {
+                            cmd_proc.stdin(file);
+                        } else if let Some(prev) = children.last_mut() {
+                            if let Some(stdout) = prev.stdout.take() {
+                                cmd_proc.stdin(stdout);
+                            }
+                        }
+
+                        for (key, value) in &self.state.env {
+                            cmd_proc.env(key, value);
+                        }
+
+                        match cmd_proc.spawn() {
+                            Ok(child) => children.push(child),
+                            Err(e) => {
+                                for mut child in children {
+                                    let _ = child.wait();
+                                }
+                                return Err(e.into());
+                            }
                         }
                     }
                 }

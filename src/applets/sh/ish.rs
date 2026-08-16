@@ -24,7 +24,7 @@ impl Applet for ShellApplet {
 
     fn run(&self, args: &[String]) -> Result<i32, Box<dyn std::error::Error>> {
         if args.is_empty() {
-            return run_repl();
+            return run_repl(self.name);
         }
 
         if args[0] == "-c" {
@@ -58,13 +58,14 @@ impl Applet for ShellApplet {
     }
 }
 
-fn run_repl() -> Result<i32, Box<dyn std::error::Error>> {
+fn run_repl(applet_name: &str) -> Result<i32, Box<dyn std::error::Error>> {
     let mut evaluator = Evaluator::new();
     let stdin = io::stdin();
     let mut line = String::new();
+    let prompt = format!("{}$ ", applet_name);
 
     loop {
-        print!("ish$ ");
+        print!("{}", prompt);
         io::stdout().flush()?;
 
         line.clear();
@@ -88,12 +89,12 @@ fn run_repl() -> Result<i32, Box<dyn std::error::Error>> {
                     evaluator.state.last_exit_code = code;
                 }
                 Err(e) => {
-                    eprintln!("ish: {}", e);
+                    eprintln!("{}: {}", applet_name, e);
                     evaluator.state.last_exit_code = 1;
                 }
             },
             Err(e) => {
-                eprintln!("ish: parse error: {}", e);
+                eprintln!("{}: parse error: {}", applet_name, e);
                 evaluator.state.last_exit_code = 1;
             }
         }
