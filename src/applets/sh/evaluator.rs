@@ -636,6 +636,11 @@ mod tests {
     use std::fs;
     #[cfg(unix)]
     use tempfile::TempDir;
+    #[cfg(unix)]
+    use std::sync::Mutex;
+
+    #[cfg(unix)]
+    static FD_TEST_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_expand_variables_simple() {
@@ -701,6 +706,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_execute_with_stdout_redirect() {
+        let _lock = FD_TEST_MUTEX.lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
         let output_file = temp_dir.path().join("output.txt");
 
@@ -733,6 +739,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn test_execute_with_append_redirect() {
+        let _lock = FD_TEST_MUTEX.lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
         let output_file = temp_dir.path().join("output.txt");
 
