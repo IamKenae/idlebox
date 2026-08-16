@@ -159,7 +159,8 @@ impl Evaluator {
 
             if let Ast::Command(cmd) = cmd_ast {
                 let mut name = self.expand_word(&cmd.name);
-                let mut args: Vec<String> = cmd.args.iter().map(|arg| self.expand_word(arg)).collect();
+                let mut args: Vec<String> =
+                    cmd.args.iter().map(|arg| self.expand_word(arg)).collect();
 
                 // Expand aliases
                 if let Some(alias_value) = self.state.aliases.get(&name).cloned() {
