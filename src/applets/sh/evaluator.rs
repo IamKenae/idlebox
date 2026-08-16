@@ -96,6 +96,10 @@ impl Evaluator {
     ) -> Result<i32, Box<dyn std::error::Error>> {
         use std::fs::{File, OpenOptions};
 
+        // NOTE: Builtins with redirections are not fully supported yet.
+        // Proper implementation requires dup2() to temporarily redirect file descriptors,
+        // which needs libc or nix crate. For now, builtins execute without redirection.
+        // This is a known limitation documented in the shell's feature list.
         if let Ok(code) = execute_builtin(&mut self.state, name, args) {
             self.state.last_exit_code = code;
             return Ok(code);

@@ -99,28 +99,46 @@ impl<'a> Lexer<'a> {
                             self.advance();
                             Token::Redirect(RedirectOp::In)
                         }
-                        '2' => {
-                            if self.peek_at(1) == Some('>') {
+                        '2' if self.peek_at(1) == Some('>') => {
+                            self.advance();
+                            self.advance();
+                            if self.peek() == Some('>') {
                                 self.advance();
-                                self.advance();
-                                if self.peek() == Some('>') {
-                                    self.advance();
-                                    Token::Redirect(RedirectOp::ErrAppend)
-                                } else {
-                                    Token::Redirect(RedirectOp::Err)
-                                }
+                                Token::Redirect(RedirectOp::ErrAppend)
                             } else {
-                                Token::Word(self.read_word()?)
+                                Token::Redirect(RedirectOp::Err)
+                            }
+                        }
+                        '2' => {
+                            let (word, has_quotes) = self.read_word()?;
+                            if has_quotes {
+                                Token::LiteralWord(word)
+                            } else {
+                                Token::Word(word)
                             }
                         }
                         '\'' => Token::LiteralWord(self.read_single_quoted_string()?),
                         '"' => Token::Word(self.read_double_quoted_string()?),
-                        '$' => Token::Word(self.read_word()?),
+                        '$' => {
+                            let (word, has_quotes) = self.read_word()?;
+                            if has_quotes {
+                                Token::LiteralWord(word)
+                            } else {
+                                Token::Word(word)
+                            }
+                        }
                         '#' => {
                             self.skip_comment();
                             continue;
                         }
-                        _ => Token::Word(self.read_word()?),
+                        _ => {
+                            let (word, has_quotes) = self.read_word()?;
+                            if has_quotes {
+                                Token::LiteralWord(word)
+                            } else {
+                                Token::Word(word)
+                            }
+                        }
                     };
                     tokens.push(token);
                 }
@@ -164,14 +182,16 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn read_word(&mut self) -> Result<String, String> {
+    fn read_word(&mut self) -> Result<(String, bool), String> {
         let mut word = String::new();
+        let mut has_single_quotes = false;
         loop {
             match self.peek() {
                 None => break,
                 Some(ch) => match ch {
                     ' ' | '\t' | '\n' | '|' | '&' | ';' | '>' | '<' => break,
                     '\'' => {
+                        has_single_quotes = true;
                         let quoted = self.read_single_quoted_string()?;
                         word.push_str(&quoted);
                     }
@@ -197,7 +217,7 @@ impl<'a> Lexer<'a> {
                 },
             }
         }
-        Ok(word)
+        Ok((word, has_single_quotes))
     }
 
     fn read_single_quoted_string(&mut self) -> Result<String, String> {

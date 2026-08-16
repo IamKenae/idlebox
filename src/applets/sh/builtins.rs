@@ -117,8 +117,8 @@ fn builtin_export(
             let value = &arg[eq_pos + 1..];
             state.set_var(key.to_string(), value.to_string());
         } else {
-            if let Some(value) = std::env::var(arg).ok() {
-                state.set_var(arg.clone(), value);
+            if let Some(value) = state.get_var(arg) {
+                state.set_var(arg.clone(), value.clone());
             }
         }
     }
