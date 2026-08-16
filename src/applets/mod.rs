@@ -114,3 +114,4 @@ pub use uptime::UptimeApplet;
 pub use wc::WcApplet;
 pub use whoami::WhoamiApplet;
 pub use zcat::ZcatApplet;
+pub use sh::{AshApplet, IshApplet, ShApplet};

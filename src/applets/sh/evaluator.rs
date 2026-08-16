@@ -132,7 +132,7 @@ impl Evaluator {
         }
 
         use std::process::Stdio;
-        let mut prev_child: Option<std::process::Child> = None;
+        let mut children: Vec<std::process::Child> = Vec::new();
 
         for (idx, cmd_ast) in pipeline.commands.iter().enumerate() {
             let is_last = idx == pipeline.commands.len() - 1;
@@ -146,20 +146,10 @@ impl Evaluator {
                     .collect();
 
                 if is_last {
-                    if let Ok(code) = execute_builtin(&mut self.state, &name, &args) {
-                        self.state.last_exit_code = code;
-                        return Ok(code);
-                    }
-
-                    if let Ok(code) = self.dispatch_applet(&name, &args) {
-                        self.state.last_exit_code = code;
-                        return Ok(code);
-                    }
-
                     let mut cmd_proc = ProcessCommand::new(&name);
                     cmd_proc.args(&args);
                     
-                    if let Some(mut prev) = prev_child {
+                    if let Some(mut prev) = children.last_mut() {
                         if let Some(stdout) = prev.stdout.take() {
                             cmd_proc.stdin(stdout);
                         }
@@ -171,30 +161,19 @@ impl Evaluator {
 
                     let status = cmd_proc.status()?;
                     let code = status.code().unwrap_or(1);
+                    
+                    for mut child in children {
+                        let _ = child.wait();
+                    }
+                    
                     self.state.last_exit_code = code;
                     return Ok(code);
                 } else {
-                    if let Ok(code) = execute_builtin(&mut self.state, &name, &args) {
-                        if code != 0 {
-                            self.state.last_exit_code = code;
-                            return Ok(code);
-                        }
-                        continue;
-                    }
-
-                    if let Ok(code) = self.dispatch_applet(&name, &args) {
-                        if code != 0 {
-                            self.state.last_exit_code = code;
-                            return Ok(code);
-                        }
-                        continue;
-                    }
-
                     let mut cmd_proc = ProcessCommand::new(&name);
                     cmd_proc.args(&args);
                     cmd_proc.stdout(Stdio::piped());
                     
-                    if let Some(mut prev) = prev_child {
+                    if let Some(mut prev) = children.last_mut() {
                         if let Some(stdout) = prev.stdout.take() {
                             cmd_proc.stdin(stdout);
                         }
@@ -204,7 +183,7 @@ impl Evaluator {
                         cmd_proc.env(key, value);
                     }
 
-                    prev_child = Some(cmd_proc.spawn()?);
+                    children.push(cmd_proc.spawn()?);
                 }
             } else {
                 return Err("pipeline elements must be commands".into());

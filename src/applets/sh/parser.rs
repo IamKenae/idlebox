@@ -86,16 +86,20 @@ impl Parser {
         while !self.is_at_end() {
             let stmt = self.parse_list()?;
             statements.push(stmt);
-            self.skip_newlines();
 
-            if !self.is_at_end() {
-                match self.peek() {
-                    Token::Semi | Token::Newline => {
-                        self.advance();
-                        self.skip_newlines();
-                    }
-                    _ => break,
+            if self.is_at_end() {
+                break;
+            }
+
+            match self.peek() {
+                Token::Semi => {
+                    self.advance();
+                    self.skip_newlines();
                 }
+                Token::Newline => {
+                    self.skip_newlines();
+                }
+                _ => break,
             }
         }
 
@@ -560,6 +564,17 @@ mod tests {
                 assert_eq!(cmd.redirections[1].op, RedirectOp::Err);
             }
             _ => panic!("expected Command"),
+        }
+    }
+
+    #[test]
+    fn test_multiline_script() {
+        let ast = Parser::parse("echo line1\necho line2\nexit 0\n").unwrap();
+        match ast {
+            Ast::Sequence(stmts) => {
+                assert_eq!(stmts.len(), 3);
+            }
+            _ => panic!("expected Sequence, got {:?}", ast),
         }
     }
 }

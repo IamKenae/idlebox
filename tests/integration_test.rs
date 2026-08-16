@@ -529,7 +529,7 @@ fn test_install_creates_launchers() {
     assert_command_success(&output, "installing applet launchers");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("Installed:"));
-    assert!(stdout.contains("58 installed, 0 updated, 0 already installed"));
+    assert!(stdout.contains("61 installed, 0 updated, 0 already installed"));
     assert!(stdout.contains("Tip: add"));
 
     for applet in &[
@@ -702,7 +702,7 @@ fn test_install_rerun_skips_current_launchers() {
     let second = run_install(&tmp_dir);
     assert_command_success(&second, "rerunning an installation");
     let stdout = String::from_utf8_lossy(&second.stdout);
-    assert!(stdout.contains("0 installed, 0 updated, 58 already installed"));
+    assert!(stdout.contains("0 installed, 0 updated, 61 already installed"));
 
     let _ = fs::remove_dir_all(&tmp_dir);
 }
