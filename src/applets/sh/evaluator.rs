@@ -36,6 +36,38 @@ impl Evaluator {
             .map(|arg| self.expand_variables(arg))
             .collect();
 
+        let mut stdin_redirect: Option<String> = None;
+        let mut stdout_redirect: Option<(String, bool)> = None;
+        let mut stderr_redirect: Option<String> = None;
+
+        for redir in &cmd.redirections {
+            let target = self.expand_variables(&redir.target);
+            match redir.op {
+                crate::applets::sh::lexer::RedirectOp::In => {
+                    stdin_redirect = Some(target);
+                }
+                crate::applets::sh::lexer::RedirectOp::Out => {
+                    stdout_redirect = Some((target, false));
+                }
+                crate::applets::sh::lexer::RedirectOp::Append => {
+                    stdout_redirect = Some((target, true));
+                }
+                crate::applets::sh::lexer::RedirectOp::Err => {
+                    stderr_redirect = Some(target);
+                }
+            }
+        }
+
+        if stdin_redirect.is_some() || stdout_redirect.is_some() || stderr_redirect.is_some() {
+            return self.execute_command_with_redirects(
+                &name,
+                &args,
+                stdin_redirect,
+                stdout_redirect,
+                stderr_redirect,
+            );
+        }
+
         if let Ok(code) = execute_builtin(&mut self.state, &name, &args) {
             self.state.last_exit_code = code;
             return Ok(code);
@@ -49,6 +81,49 @@ impl Evaluator {
         let exit_code = self.execute_external(&name, &args)?;
         self.state.last_exit_code = exit_code;
         Ok(exit_code)
+    }
+
+    fn execute_command_with_redirects(
+        &mut self,
+        name: &str,
+        args: &[String],
+        stdin_redirect: Option<String>,
+        stdout_redirect: Option<(String, bool)>,
+        stderr_redirect: Option<String>,
+    ) -> Result<i32, Box<dyn std::error::Error>> {
+        use std::fs::{File, OpenOptions};
+        use std::process::Stdio;
+
+        let mut cmd = ProcessCommand::new(name);
+        cmd.args(args);
+
+        if let Some(stdin_file) = stdin_redirect {
+            let file = File::open(&stdin_file)?;
+            cmd.stdin(file);
+        }
+
+        if let Some((stdout_file, append)) = stdout_redirect {
+            let file = if append {
+                OpenOptions::new().create(true).append(true).open(&stdout_file)?
+            } else {
+                File::create(&stdout_file)?
+            };
+            cmd.stdout(file);
+        }
+
+        if let Some(stderr_file) = stderr_redirect {
+            let file = File::create(&stderr_file)?;
+            cmd.stderr(file);
+        }
+
+        for (key, value) in &self.state.env {
+            cmd.env(key, value);
+        }
+
+        let status = cmd.status()?;
+        let code = status.code().unwrap_or(1);
+        self.state.last_exit_code = code;
+        Ok(code)
     }
 
     fn execute_pipeline(&mut self, pipeline: &Pipeline) -> Result<i32, Box<dyn std::error::Error>> {
@@ -293,6 +368,10 @@ impl Evaluator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::applets::sh::lexer::RedirectOp;
+    use crate::applets::sh::parser::Redirection;
+    use std::fs;
+    use tempfile::TempDir;
 
     #[test]
     fn test_expand_variables_simple() {
@@ -344,5 +423,93 @@ mod tests {
         let result = evaluator.execute(&ast).unwrap();
         assert_eq!(result, 0);
         assert_eq!(evaluator.state.get_var("TEST"), Some(&"value".to_string()));
+    }
+
+    #[test]
+    fn test_execute_with_stdout_redirect() {
+        let temp_dir = TempDir::new().unwrap();
+        let output_file = temp_dir.path().join("output.txt");
+
+        let mut evaluator = Evaluator::new();
+        let ast = Ast::Command(Command {
+            name: "echo".to_string(),
+            args: vec!["hello".to_string()],
+            redirections: vec![Redirection {
+                op: RedirectOp::Out,
+                target: output_file.to_str().unwrap().to_string(),
+            }],
+        });
+
+        let result = evaluator.execute(&ast).unwrap();
+        assert_eq!(result, 0);
+
+        let content = fs::read_to_string(&output_file).unwrap();
+        assert_eq!(content.trim(), "hello");
+    }
+
+    #[test]
+    fn test_execute_with_append_redirect() {
+        let temp_dir = TempDir::new().unwrap();
+        let output_file = temp_dir.path().join("output.txt");
+
+        fs::write(&output_file, "first\n").unwrap();
+
+        let mut evaluator = Evaluator::new();
+        let ast = Ast::Command(Command {
+            name: "echo".to_string(),
+            args: vec!["second".to_string()],
+            redirections: vec![Redirection {
+                op: RedirectOp::Append,
+                target: output_file.to_str().unwrap().to_string(),
+            }],
+        });
+
+        let result = evaluator.execute(&ast).unwrap();
+        assert_eq!(result, 0);
+
+        let content = fs::read_to_string(&output_file).unwrap();
+        assert_eq!(content, "first\nsecond\n");
+    }
+
+    #[test]
+    fn test_execute_and_list() {
+        let mut evaluator = Evaluator::new();
+        let ast = Ast::List(List {
+            left: Box::new(Ast::Command(Command {
+                name: "true".to_string(),
+                args: vec![],
+                redirections: vec![],
+            })),
+            op: ListOp::And,
+            right: Box::new(Ast::Command(Command {
+                name: "true".to_string(),
+                args: vec![],
+                redirections: vec![],
+            })),
+        });
+
+        let result = evaluator.execute(&ast).unwrap();
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn test_execute_or_list() {
+        let mut evaluator = Evaluator::new();
+        let ast = Ast::List(List {
+            left: Box::new(Ast::Command(Command {
+                name: "false".to_string(),
+                args: vec![],
+                redirections: vec![],
+            })),
+            op: ListOp::Or,
+            right: Box::new(Ast::Command(Command {
+                name: "true".to_string(),
+                args: vec![],
+                redirections: vec![],
+            })),
+        });
+
+        let result = evaluator.execute(&ast).unwrap();
+        assert_eq!(result, 0);
     }
 }
