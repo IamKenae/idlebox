@@ -189,7 +189,7 @@ impl<'a> Lexer<'a> {
             match self.peek() {
                 None => break,
                 Some(ch) => match ch {
-                    ' ' | '\t' | '\n' | '|' | '&' | ';' | '>' | '<' => break,
+                    ' ' | '\t' | '\n' | '\r' | '|' | '&' | ';' | '>' | '<' => break,
                     '\'' => {
                         has_single_quotes = true;
                         let quoted = self.read_single_quoted_string()?;
@@ -245,10 +245,7 @@ impl<'a> Lexer<'a> {
                 Some('\\') => {
                     if let Some(escaped) = self.advance() {
                         match escaped {
-                            'n' => result.push('\n'),
-                            't' => result.push('\t'),
-                            'r' => result.push('\r'),
-                            '\\' | '"' | '$' | '`' => result.push(escaped),
+                            '\\' | '"' | '$' | '`' | '\n' => result.push(escaped),
                             _ => {
                                 result.push('\\');
                                 result.push(escaped);
@@ -666,7 +663,7 @@ mod tests {
             tokens,
             vec![
                 Token::Word("echo".to_string()),
-                Token::Word("hello\nworld".to_string()),
+                Token::Word("hello\\nworld".to_string()),
                 Token::Eof,
             ]
         );
