@@ -111,6 +111,11 @@ fn run_command(command: &str) -> Result<i32, Box<dyn std::error::Error>> {
 
 fn run_script(path: &str) -> Result<i32, Box<dyn std::error::Error>> {
     let content = std::fs::read_to_string(path)?;
+    let content = if content.starts_with("#!") {
+        content.lines().skip(1).collect::<Vec<_>>().join("\n")
+    } else {
+        content
+    };
     let mut evaluator = Evaluator::new();
     let ast = Parser::parse(&content)?;
     let code = evaluator.execute(&ast)?;

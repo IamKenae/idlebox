@@ -92,15 +92,6 @@ impl Evaluator {
     ) -> Result<i32, Box<dyn std::error::Error>> {
         use std::fs::{File, OpenOptions};
 
-        // NOTE: Builtins with redirections are not fully supported yet.
-        // Proper implementation requires dup2() to temporarily redirect file descriptors,
-        // which needs libc or nix crate. For now, builtins execute without redirection.
-        // This is a known limitation documented in the shell's feature list.
-        if let Ok(code) = execute_builtin(&mut self.state, name, args) {
-            self.state.last_exit_code = code;
-            return Ok(code);
-        }
-
         let mut cmd = ProcessCommand::new(name);
         cmd.args(args);
 
@@ -158,10 +149,10 @@ impl Evaluator {
                 let name = self.expand_word(&cmd.name);
                 let args: Vec<String> = cmd.args.iter().map(|arg| self.expand_word(arg)).collect();
 
-                if is_last {
-                    let mut cmd_proc = ProcessCommand::new(&name);
-                    cmd_proc.args(&args);
+                let mut cmd_proc = ProcessCommand::new(&name);
+                cmd_proc.args(&args);
 
+                if is_last {
                     if let Some(prev) = children.last_mut() {
                         if let Some(stdout) = prev.stdout.take() {
                             cmd_proc.stdin(stdout);
@@ -182,8 +173,6 @@ impl Evaluator {
                     self.state.last_exit_code = code;
                     return Ok(code);
                 } else {
-                    let mut cmd_proc = ProcessCommand::new(&name);
-                    cmd_proc.args(&args);
                     cmd_proc.stdout(Stdio::piped());
 
                     if let Some(prev) = children.last_mut() {
@@ -196,9 +185,20 @@ impl Evaluator {
                         cmd_proc.env(key, value);
                     }
 
-                    children.push(cmd_proc.spawn()?);
+                    match cmd_proc.spawn() {
+                        Ok(child) => children.push(child),
+                        Err(e) => {
+                            for mut child in children {
+                                let _ = child.wait();
+                            }
+                            return Err(e.into());
+                        }
+                    }
                 }
             } else {
+                for mut child in children {
+                    let _ = child.wait();
+                }
                 return Err("pipeline elements must be commands".into());
             }
         }

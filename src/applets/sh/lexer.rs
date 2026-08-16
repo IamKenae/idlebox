@@ -165,7 +165,7 @@ impl<'a> Lexer<'a> {
 
     fn skip_whitespace(&mut self) {
         while let Some(ch) = self.peek() {
-            if ch == ' ' || ch == '\t' {
+            if ch == ' ' || ch == '\t' || ch == '\r' {
                 self.advance();
             } else {
                 break;

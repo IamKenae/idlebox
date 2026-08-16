@@ -90,7 +90,13 @@ fn builtin_exit(
     let code = if args.is_empty() {
         state.last_exit_code
     } else {
-        args[0].parse::<i32>().unwrap_or(1)
+        match args[0].parse::<i32>() {
+            Ok(c) => c,
+            Err(_) => {
+                eprintln!("exit: {}: numeric argument required", args[0]);
+                2
+            }
+        }
     };
     state.should_exit = true;
     state.exit_code = code;
@@ -102,7 +108,9 @@ fn builtin_export(
     args: &[String],
 ) -> Result<i32, Box<dyn std::error::Error>> {
     if args.is_empty() {
-        for (key, value) in &state.env {
+        let mut vars: Vec<_> = state.env.iter().collect();
+        vars.sort_by_key(|(k, _)| (*k).clone());
+        for (key, value) in vars {
             println!("export {}=\"{}\"", key, value);
         }
         return Ok(0);
@@ -113,10 +121,8 @@ fn builtin_export(
             let key = &arg[..eq_pos];
             let value = &arg[eq_pos + 1..];
             state.set_var(key.to_string(), value.to_string());
-        } else {
-            if let Some(value) = state.get_var(arg) {
-                state.set_var(arg.clone(), value.clone());
-            }
+        } else if let Some(value) = state.get_var(arg) {
+            state.set_var(arg.clone(), value.clone());
         }
     }
     Ok(0)
@@ -137,7 +143,9 @@ fn builtin_alias(
     args: &[String],
 ) -> Result<i32, Box<dyn std::error::Error>> {
     if args.is_empty() {
-        for (name, value) in &state.aliases {
+        let mut aliases: Vec<_> = state.aliases.iter().collect();
+        aliases.sort_by_key(|(k, _)| (*k).clone());
+        for (name, value) in aliases {
             println!("alias {}='{}'", name, value);
         }
         return Ok(0);
@@ -148,13 +156,11 @@ fn builtin_alias(
             let name = &arg[..eq_pos];
             let value = &arg[eq_pos + 1..];
             state.set_alias(name.to_string(), value.to_string());
+        } else if let Some(value) = state.aliases.get(arg) {
+            println!("alias {}='{}'", arg, value);
         } else {
-            if let Some(value) = state.aliases.get(arg) {
-                println!("alias {}='{}'", arg, value);
-            } else {
-                eprintln!("alias: {}: not found", arg);
-                return Ok(1);
-            }
+            eprintln!("alias: {}: not found", arg);
+            return Ok(1);
         }
     }
     Ok(0)
