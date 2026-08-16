@@ -14,8 +14,8 @@ We strictly follow a modern GitFlow branching model to keep our history clean an
 ### The Main Branches / 主干分支
 - **`main`**: The primary branch where the source code of `HEAD` always reflects a production-ready state. Do not push directly to this branch. 
   代表生产就绪状态的绝对主干分支。禁止直接推送到此分支。
-- **`develop`**: The primary integration branch. This is the **default branch**. All feature branches should branch off from `develop` and be merged back into `develop` via Pull Requests.
-  主要的集成开发分支，这也是仓库的**默认分支**。所有的特性分支都应从 `develop` 检出，并通过 PR 合并回 `develop`。
+- **`develop`**: The primary integration branch. All feature branches should branch off from `develop` and be merged back into `develop` via Pull Requests.
+  主要的集成开发分支。所有的特性分支都应从 `develop` 检出，并通过 PR 合并回 `develop`。
 
 ### Supporting Branches / 辅助分支
 When starting new work, branch off from `develop` and prefix your branch name with its type:
